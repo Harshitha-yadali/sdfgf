@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, PaymentMethod, PaymentProvider, PickupOption } from '../types';
+import type { Order, OrderStatus, OrderType, PaymentMethod, PaymentProvider, PickupOption } from '../types';
 
 const GUEST_ORDER_SNAPSHOT_KEY = 'supreme-waffle-guest-order-snapshots';
 const GUEST_ORDER_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -11,7 +11,11 @@ interface StoreGuestOrderSnapshotInput {
   orderId: string;
   customerName: string;
   customerEmail: string;
+  orderType: OrderType;
   pickupOption: PickupOption;
+  address: string;
+  pincode: string;
+  deliveryFee: number;
   subtotal: number;
   discount: number;
   total: number;
@@ -79,12 +83,12 @@ export function storeGuestOrderSnapshot(input: StoreGuestOrderSnapshotInput) {
     customer_name: input.customerName,
     customer_phone: '',
     customer_email: input.customerEmail,
-    address: '',
-    pincode: '',
-    order_type: 'pickup',
+    address: input.address,
+    pincode: input.pincode,
+    order_type: input.orderType,
     pickup_option: input.pickupOption,
-    delivery_fee: 0,
-    takeaway_fee: input.pickupOption === 'takeaway' ? 10 : 0,
+    delivery_fee: input.orderType === 'delivery' ? input.deliveryFee : 0,
+    takeaway_fee: input.orderType === 'pickup' && input.pickupOption === 'takeaway' ? 10 : 0,
     subtotal: input.subtotal,
     discount: input.discount,
     total: input.total,

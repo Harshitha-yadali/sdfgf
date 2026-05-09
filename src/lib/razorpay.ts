@@ -4,7 +4,7 @@ import {
   FunctionsRelayError,
 } from '@supabase/supabase-js';
 import { customerSupabase } from './supabase';
-import type { SelectedCustomization } from '../types';
+import type { OrderType, PickupOption, SelectedCustomization } from '../types';
 
 export interface RazorpayCartItemInput {
   menu_item_id: string;
@@ -18,7 +18,11 @@ interface CreateRazorpayOrderPayload {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
-  pickupOption: 'dine_in' | 'takeaway';
+  orderType: OrderType;
+  pickupOption: PickupOption;
+  address: string;
+  pincode: string;
+  deliveryFee: number;
   subtotal: number;
   discount: number;
   total: number;

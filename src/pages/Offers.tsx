@@ -154,6 +154,9 @@ export default function OffersPage() {
                       <img
                         src={backgroundImage}
                         alt={offer.title}
+                        loading="lazy"
+                        width={1200}
+                        height={600}
                         className="absolute inset-0 h-full w-full object-cover opacity-20 transition-transform duration-700 group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(8,11,7,0.96)_0%,rgba(8,11,7,0.84)_44%,rgba(8,11,7,0.7)_100%)]" />

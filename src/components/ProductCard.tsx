@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import type { MenuItem } from '../types';
 import { useCart } from '../contexts/CartContext';
 import { FALLBACK_IMAGE_SRC, normalizeImageUrl } from '../lib/images';
+import { getMenuItemDietaryBadges } from '../lib/menuItemDietary';
 
 interface ProductCardProps {
   item: MenuItem;
@@ -14,6 +15,7 @@ interface ProductCardProps {
 export default function ProductCard({ item, onImageClick, onAdd }: ProductCardProps) {
   const { items, updateQuantity, removeItem } = useCart();
   const [imageSrc, setImageSrc] = useState(normalizeImageUrl(item.image_url));
+  const dietaryBadges = getMenuItemDietaryBadges(item);
 
   const cartItems = items.filter((ci) => ci.menu_item.id === item.id);
   const totalQty = cartItems.reduce((sum, ci) => sum + ci.quantity, 0);
@@ -68,6 +70,8 @@ export default function ProductCard({ item, onImageClick, onAdd }: ProductCardPr
           alt={item.name}
           loading="lazy"
           decoding="async"
+          width={400}
+          height={480}
           onError={() => {
             if (imageSrc !== FALLBACK_IMAGE_SRC) {
               setImageSrc(FALLBACK_IMAGE_SRC);
@@ -94,6 +98,16 @@ export default function ProductCard({ item, onImageClick, onAdd }: ProductCardPr
         >
           {item.name}
         </motion.h3>
+
+        {dietaryBadges.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {dietaryBadges.map((badge) => (
+              <span key={badge.key} className={`${badge.className} px-2 py-0.5 text-[11px]`}>
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[12px] font-semibold text-brand-text-dim shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
           <Clock size={12} className="text-brand-gold" strokeWidth={2.2} />

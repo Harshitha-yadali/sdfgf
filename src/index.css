@@ -106,6 +106,16 @@
     bottom: 76px;
   }
 
+  .customer-whatsapp-button {
+    @apply fixed right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-[0_18px_38px_rgba(37,211,102,0.32)] transition-transform duration-200 hover:scale-105 active:scale-95;
+    bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+    background-color: #25D366;
+  }
+
+  .customer-whatsapp-button--lifted {
+    bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
+  }
+
   .cart-submit-bar {
     @apply fixed left-0 right-0 z-40 bg-brand-bg/95 backdrop-blur-sm border-t border-brand-border px-4 py-3;
     bottom: 64px;
@@ -192,6 +202,13 @@
   .badge-nonveg {
     @apply inline-flex items-center gap-1 px-2.5 py-1
            bg-red-500/10 text-red-400 border border-red-500/20 rounded-md;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .badge-eggless {
+    @apply inline-flex items-center gap-1 px-2.5 py-1
+           bg-amber-500/10 text-amber-300 border border-amber-500/20 rounded-md;
     font-size: 12px;
     font-weight: 600;
   }
@@ -308,6 +325,11 @@
 
   .customer-floating-cart {
     bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .customer-whatsapp-button,
+  .customer-whatsapp-button--lifted {
+    bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   }
 
   .cart-submit-bar {

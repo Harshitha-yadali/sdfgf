@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Pencil, Trash2, Save, X, Search } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 import CustomizationAssignmentsManager from '../../components/admin/CustomizationAssignmentsManager';
-import { detectInventorySchemaSupport } from '../../lib/inventorySchema';
+import { detectDietarySchemaSupport, detectInventorySchemaSupport } from '../../lib/inventorySchema';
+import { getMenuItemDietaryBadges } from '../../lib/menuItemDietary';
 import { supabase } from '../../lib/supabase';
 import type { Category, MenuItem } from '../../types';
 
@@ -15,6 +16,7 @@ interface ItemForm {
   image_url: string;
   prep_time: string;
   is_veg: boolean;
+  is_non_veg: boolean;
   is_eggless: boolean;
   manual_availability: boolean;
   track_inventory: boolean;
@@ -36,6 +38,7 @@ const emptyItem: ItemForm = {
   image_url: '',
   prep_time: '10',
   is_veg: false,
+  is_non_veg: false,
   is_eggless: false,
   manual_availability: true,
   track_inventory: false,
@@ -82,6 +85,22 @@ function getAvailableQuantity(item: MenuItem) {
 
 function computeEffectiveAvailability(manualAvailability: boolean, trackInventory: boolean, availableQuantity: number) {
   return manualAvailability && (!trackInventory || availableQuantity > 0);
+}
+
+function getAvailabilityUpdatePayload(item: MenuItem, nextManualAvailability: boolean, inventorySchemaReady: boolean) {
+  if (!inventorySchemaReady) {
+    return {
+      is_available: nextManualAvailability,
+    };
+  }
+
+  const availableQuantity = getAvailableQuantity(item);
+  const trackInventory = getTrackInventory(item);
+
+  return {
+    manual_availability: nextManualAvailability,
+    is_available: computeEffectiveAvailability(nextManualAvailability, trackInventory, availableQuantity),
+  };
 }
 
 function formatInventorySummary(item: MenuItem) {
@@ -199,6 +218,7 @@ function toItemForm(item: MenuItem): ItemForm {
     image_url: normalizeImageUrl(item.image_url),
     prep_time: String(item.prep_time),
     is_veg: item.is_veg,
+    is_non_veg: item.is_non_veg === true,
     is_eggless: item.is_eggless,
     manual_availability: getManualAvailability(item),
     track_inventory: getTrackInventory(item),
@@ -210,12 +230,14 @@ export default function AdminMenu() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [inventorySchemaReady, setInventorySchemaReady] = useState(true);
+  const [dietarySchemaReady, setDietarySchemaReady] = useState(true);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ItemForm | null>(null);
   const [catForm, setCatForm] = useState<CategoryForm>(emptyCategoryForm);
   const [showCatForm, setShowCatForm] = useState(false);
   const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
   const [updatingStockId, setUpdatingStockId] = useState<string | null>(null);
+  const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
   const categoryFormRef = useRef<HTMLDivElement | null>(null);
@@ -225,17 +247,29 @@ export default function AdminMenu() {
 
   const loadData = useCallback(async () => {
     let schemaReady = true;
+    let dietaryReady = true;
     try {
       schemaReady = await detectInventorySchemaSupport();
     } catch (error) {
       console.error('Failed to detect inventory schema support', error);
     }
 
+    try {
+      dietaryReady = await detectDietarySchemaSupport();
+    } catch (error) {
+      console.error('Failed to detect dietary schema support', error);
+    }
+
     setInventorySchemaReady(schemaReady);
+    setDietarySchemaReady(dietaryReady);
 
     if (!schemaReady && !schemaNoticeShownRef.current) {
       showToast('Inventory columns are not in Supabase yet. Apply the latest migration to enable stock counts.', 'error');
       schemaNoticeShownRef.current = true;
+    }
+
+    if (!dietaryReady) {
+      showToast('Non-veg label needs the latest Supabase migration before it can be saved.', 'error');
     }
 
     const [catRes, itemRes] = await Promise.all([
@@ -429,6 +463,7 @@ export default function AdminMenu() {
       prep_time: parseInt(editing.prep_time, 10) || 10,
       is_veg: editing.is_veg,
       is_eggless: editing.is_eggless,
+      ...(dietarySchemaReady ? { is_non_veg: editing.is_non_veg } : {}),
       is_available: inventorySchemaReady ? nextAvailability : editing.manual_availability,
       display_order: editing.id
         ? undefined
@@ -506,15 +541,7 @@ export default function AdminMenu() {
   async function toggleItemAvailability(item: MenuItem, nextManualAvailability: boolean) {
     const availableQuantity = getAvailableQuantity(item);
     const trackInventory = getTrackInventory(item);
-    const nextEffectiveAvailability = computeEffectiveAvailability(nextManualAvailability, trackInventory, availableQuantity);
-    const updatePayload = inventorySchemaReady
-      ? {
-          manual_availability: nextManualAvailability,
-          is_available: nextEffectiveAvailability,
-        }
-      : {
-          is_available: nextManualAvailability,
-        };
+    const updatePayload = getAvailabilityUpdatePayload(item, nextManualAvailability, inventorySchemaReady);
 
     const { error } = await supabase
       .from('menu_items')
@@ -538,37 +565,51 @@ export default function AdminMenu() {
   }
 
   async function toggleCategoryAvailability(category: Category, nextManualAvailability: boolean) {
-    const categoryItemCount = categoryItemCountById[category.id] || 0;
+    const categoryItems = items.filter((item) => item.category_id === category.id);
+    const categoryItemCount = categoryItems.length;
 
     if (categoryItemCount === 0) {
       showToast('This category has no items yet', 'error');
       return;
     }
 
-    const { error } = inventorySchemaReady
-      ? await supabase
-          .from('menu_items')
-          .update({ manual_availability: nextManualAvailability })
-          .eq('category_id', category.id)
-      : await supabase
-          .from('menu_items')
-          .update({ is_available: nextManualAvailability })
-          .eq('category_id', category.id);
+    if (updatingCategoryId === category.id) return;
 
-    if (error) {
-      showToast(
-        error.message || `Failed to update ${category.name}`,
-        'error',
+    setUpdatingCategoryId(category.id);
+
+    try {
+      const results = await Promise.allSettled(
+        categoryItems.map((item) => (
+          supabase
+            .from('menu_items')
+            .update(getAvailabilityUpdatePayload(item, nextManualAvailability, inventorySchemaReady))
+            .eq('id', item.id)
+        )),
       );
-      return;
-    }
 
-    showToast(
-      nextManualAvailability
-        ? `${category.name} items will show when stock is available`
-        : `${category.name} hidden from customers`,
-    );
-    await loadData();
+      const failedResult = results.find((result) => (
+        result.status === 'rejected' || Boolean(result.value.error)
+      ));
+
+      if (failedResult) {
+        const errorMessage = failedResult.status === 'rejected'
+          ? (failedResult.reason instanceof Error ? failedResult.reason.message : `Failed to update ${category.name}`)
+          : (failedResult.value.error?.message || `Failed to update ${category.name}`);
+
+        showToast(errorMessage, 'error');
+        await loadData();
+        return;
+      }
+
+      showToast(
+        nextManualAvailability
+          ? `${category.name} items will show when stock is available`
+          : `${category.name} hidden from customers`,
+      );
+      await loadData();
+    } finally {
+      setUpdatingCategoryId(null);
+    }
   }
 
   async function saveCategory() {
@@ -839,6 +880,7 @@ export default function AdminMenu() {
             const totalItems = categoryItemCountById[cat.id] || 0;
             const availableItems = categoryAvailableItemCountById[cat.id] || 0;
             const hasItems = totalItems > 0;
+            const isUpdatingCategory = updatingCategoryId === cat.id;
             const shouldMarkVisible = hasItems && availableItems === 0;
 
             return (
@@ -870,16 +912,16 @@ export default function AdminMenu() {
                   </span>
                   <button
                     onClick={() => void toggleCategoryAvailability(cat, shouldMarkVisible)}
-                    disabled={!hasItems}
+                    disabled={!hasItems || isUpdatingCategory}
                     className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                      !hasItems
+                      !hasItems || isUpdatingCategory
                         ? 'cursor-not-allowed bg-brand-surface-light/40 text-brand-text-dim'
                         : shouldMarkVisible
                           ? 'text-emerald-300 hover:bg-emerald-500/10'
                           : 'text-red-300 hover:bg-red-500/10'
                     }`}
                   >
-                    {shouldMarkVisible ? 'Show All' : 'Hide All'}
+                    {isUpdatingCategory ? 'Updating...' : shouldMarkVisible ? 'Show All' : 'Hide All'}
                   </button>
                 </div>
               </div>
@@ -919,6 +961,89 @@ export default function AdminMenu() {
 
             <input placeholder="Image URL" value={editing.image_url} onChange={(e) => setEditing({ ...editing, image_url: e.target.value })} className="input-field" />
             <textarea placeholder="Description" value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} className="input-field resize-none" rows={2} />
+
+            <div className="rounded-xl border border-brand-border bg-brand-surface-light/40 p-4 space-y-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-brand-text-dim">Dietary Tags</p>
+                <p className="mt-1 text-sm text-brand-text-muted">
+                  Choose which label should appear on the product card.
+                </p>
+              </div>
+              {!dietarySchemaReady && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  Non-Veg label needs the latest Supabase migration before it can be saved.
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditing((current) => {
+                    if (!current) return current;
+
+                    const nextIsVeg = !current.is_veg;
+
+                    return {
+                      ...current,
+                      is_veg: nextIsVeg,
+                      is_non_veg: false,
+                      is_eggless: nextIsVeg ? current.is_eggless : false,
+                    };
+                  })}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                    editing.is_veg
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                      : 'border-brand-border text-brand-text-muted hover:border-emerald-500/30 hover:text-emerald-300'
+                  }`}
+                >
+                  Veg
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing((current) => {
+                    if (!current) return current;
+
+                    const nextIsNonVeg = !current.is_non_veg;
+
+                    return {
+                      ...current,
+                      is_non_veg: nextIsNonVeg,
+                      is_veg: nextIsNonVeg ? false : current.is_veg,
+                      is_eggless: nextIsNonVeg ? false : current.is_eggless,
+                    };
+                  })}
+                  disabled={!dietarySchemaReady}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                    editing.is_non_veg
+                      ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                      : 'border-brand-border text-brand-text-muted hover:border-red-500/30 hover:text-red-300'
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  Non-Veg
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing((current) => (
+                    current
+                      ? {
+                          ...current,
+                          is_eggless: !current.is_eggless,
+                        }
+                      : current
+                  ))}
+                  disabled={!editing.is_veg || editing.is_non_veg}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                    editing.is_eggless
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                      : 'border-brand-border text-brand-text-muted hover:border-amber-500/30 hover:text-amber-300'
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  Eggless
+                </button>
+              </div>
+              <p className="text-xs text-brand-text-dim">
+                Eggless is available only when the item is marked veg.
+              </p>
+            </div>
 
             <label className="flex items-center gap-3 rounded-xl border border-brand-border bg-brand-surface-light/40 px-4 py-3 text-sm text-white">
               <input
@@ -1006,7 +1131,7 @@ export default function AdminMenu() {
           </div>
 
           {categories.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setSelectedCategoryFilter('')}
                 className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
@@ -1061,6 +1186,7 @@ export default function AdminMenu() {
               const trackInventory = getTrackInventory(item);
               const availableQuantity = getAvailableQuantity(item);
               const categoryName = categories.find((c) => c.id === item.category_id)?.name;
+              const dietaryBadges = getMenuItemDietaryBadges(item);
 
               return (
                 <div key={item.id} className="bg-brand-surface rounded-xl border border-brand-border p-3 space-y-2">
@@ -1069,6 +1195,9 @@ export default function AdminMenu() {
                     <img
                       src={item.image_url || '/image.png'}
                       alt={item.name}
+                      loading="lazy"
+                      width={44}
+                      height={44}
                       onError={(event) => {
                         if (event.currentTarget.src.endsWith('/image.png')) return;
                         event.currentTarget.src = '/image.png';
@@ -1078,6 +1207,11 @@ export default function AdminMenu() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <h3 className="font-bold text-sm text-white">{item.name}</h3>
+                        {dietaryBadges.map((badge) => (
+                          <span key={badge.key} className={`${badge.className} px-2 py-0.5 text-[10px]`}>
+                            {badge.label}
+                          </span>
+                        ))}
                         <span
                           className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                             item.is_available

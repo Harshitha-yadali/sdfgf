@@ -4,12 +4,14 @@ import { Search, Phone, MessageCircle, ArrowLeft, Package, Bell, PartyPopper, Cl
 import { supabase } from '../lib/supabase';
 import { clearPendingOnlineOrder, readPendingOnlineOrder } from '../lib/pendingOnlineOrder';
 import { getCompletedOrderLabel, getPaymentMethodLabel, getPendingPaymentLabel, getReadyOrderLabel, getServiceModeLabel, isAwaitingCounterPayment, isAwaitingOnlinePayment, isDineInOrder } from '../lib/orderLabels';
+import { fetchAccessibleOrderDetails } from '../lib/orderLookup';
 import { reconcileRazorpayPayment } from '../lib/razorpay';
 import { playOrderCompleteSound, playPickupReadyAlert } from '../lib/sounds';
 import type { Order, OrderItem, MenuItem } from '../types';
 import OrderTimeline from '../components/OrderTimeline';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
+import { readGuestOrderSnapshot, updateGuestOrderSnapshot } from '../lib/guestOrderSnapshot';
 
 function PrepCountdown({ confirmedAt, estimatedMinutes }: { confirmedAt: string; estimatedMinutes: number }) {
   const [remaining, setRemaining] = useState(0);
@@ -94,7 +96,7 @@ export default function TrackOrderPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [showReadyBanner, setShowReadyBanner] = useState(false);
-  const [queueAhead, setQueueAhead] = useState(0);
+  const [queueAhead, setQueueAhead] = useState<number | null>(null);
   const [specials, setSpecials] = useState<MenuItem[]>([]);
   const [reconcilingPayment, setReconcilingPayment] = useState(false);
   const prevStatusRef = useRef<string | null>(null);
@@ -134,10 +136,10 @@ export default function TrackOrderPage() {
       setShowReadyBanner(false);
     }
 
-    if (order.status === 'pending' && !isAwaitingCounterPayment(order)) {
+    if (user && order.status === 'pending' && !isAwaitingCounterPayment(order)) {
       void loadQueuePosition(order);
     } else {
-      setQueueAhead(0);
+      setQueueAhead(null);
     }
 
     if (prevStatusRef.current && prevStatusRef.current !== order.status) {
@@ -146,10 +148,10 @@ export default function TrackOrderPage() {
       }
     }
     prevStatusRef.current = order.status;
-  }, [order]);
+  }, [order, user]);
 
   useEffect(() => {
-    if (!order?.order_id) return;
+    if (!order?.order_id || !user) return;
 
     const channel = supabase
       .channel(`track-${order.order_id}`)
@@ -165,7 +167,41 @@ export default function TrackOrderPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [order?.order_id]);
+  }, [order?.order_id, user]);
+
+  useEffect(() => {
+    if (!order || user || !order.customer_email) return;
+    if (['delivered', 'cancelled', 'expired'].includes(order.status)) return;
+
+    let isMounted = true;
+
+    const refreshGuestOrder = async () => {
+      try {
+        const { order: freshOrder, items } = await fetchAccessibleOrderDetails(order.order_id, order.customer_email);
+        if (!isMounted) {
+          return;
+        }
+
+        updateGuestOrderSnapshot(order.order_id, freshOrder);
+        setOrder((currentOrder) => currentOrder && currentOrder.order_id === freshOrder.order_id
+          ? freshOrder
+          : currentOrder);
+        setOrderItems(items);
+      } catch (error) {
+        console.error('Failed to poll guest order status', error);
+      }
+    };
+
+    void refreshGuestOrder();
+    const interval = setInterval(() => {
+      void refreshGuestOrder();
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [order, user]);
 
   useEffect(() => {
     if (!order) return;
@@ -243,23 +279,40 @@ export default function TrackOrderPage() {
   }
 
   const fetchOrder = useCallback(async (id: string) => {
-    if (!user) {
-      setOrder(null);
-      setOrderItems([]);
-      setSearched(true);
-      setLoading(false);
-      return;
-    }
-
     const normalizedId = id.trim().toUpperCase();
 
     setLoading(true);
     setSearched(true);
     setShowReadyBanner(false);
-    setQueueAhead(0);
+    setQueueAhead(null);
     setOrderItems([]);
     prevStatusRef.current = null;
     pickupAlertPlayedRef.current = false;
+
+    if (!user) {
+      const guestOrder = readGuestOrderSnapshot(normalizedId);
+
+      if (!guestOrder?.customer_email) {
+        setOrder(guestOrder);
+        setLoading(false);
+        return;
+      }
+
+      setOrder(guestOrder);
+
+      try {
+        const { order: freshOrder, items } = await fetchAccessibleOrderDetails(normalizedId, guestOrder.customer_email);
+        updateGuestOrderSnapshot(normalizedId, freshOrder);
+        setOrder(freshOrder);
+        setOrderItems(items);
+      } catch (error) {
+        console.error('Failed to load guest order', error);
+      } finally {
+        setLoading(false);
+      }
+
+      return;
+    }
 
     const { data } = await supabase
       .from('orders')
@@ -465,7 +518,7 @@ export default function TrackOrderPage() {
                       ? 'Payment confirmed. Your order is now waiting in the kitchen queue.'
                       : 'Please wait while our chef accepts your order'}
                   </p>
-                  {queueAhead > 0 && (
+                  {queueAhead !== null && queueAhead > 0 && (
                     <div className="inline-flex items-center gap-2 rounded-full bg-brand-surface-strong/80 px-4 py-2 text-[14px] font-semibold backdrop-blur-sm">
                       <Clock size={14} />
                       {queueAhead} order{queueAhead !== 1 ? 's' : ''} ahead of you
@@ -901,6 +954,9 @@ function TrackPageSpecials({ items }: { items: MenuItem[] }) {
               <img
                 src={item.image_url}
                 alt={item.name}
+                loading="lazy"
+                width={200}
+                height={200}
                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
               />
             </div>
@@ -923,6 +979,9 @@ function TrackPageSpecials({ items }: { items: MenuItem[] }) {
               <img
                 src={item.image_url}
                 alt={item.name}
+                loading="lazy"
+                width={44}
+                height={44}
                 className="w-11 h-11 rounded-lg object-cover shrink-0 group-hover:scale-105 transition-transform"
               />
               <div className="flex-1 min-w-0">

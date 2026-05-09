@@ -14,6 +14,9 @@ import {
   getBearerToken,
   shouldResolveUserFromAuthToken,
 } from "../_shared/auth.ts";
+import {
+  resolveCheckoutFulfillment,
+} from "../_shared/delivery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +24,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
-const TAKEAWAY_FEE = 10;
 const LEGACY_CHECKOUT_PHONE_PLACEHOLDER = "0000000000";
 
 interface CounterOrderItem {
@@ -36,7 +38,11 @@ interface CreateBody {
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
+  orderType?: "pickup" | "delivery";
   pickupOption?: "dine_in" | "takeaway";
+  address?: string;
+  pincode?: string;
+  deliveryFee?: number;
   subtotal?: number;
   discount?: number;
   total?: number;
@@ -53,7 +59,7 @@ type AppOrderInsert = {
   customer_email: string;
   address: string;
   pincode: string;
-  order_type: "pickup";
+  order_type: "pickup" | "delivery";
   pickup_option: "dine_in" | "takeaway";
   delivery_fee: number;
   takeaway_fee: number;
@@ -274,7 +280,11 @@ Deno.serve(async (req: Request) => {
     const customerName = body.customerName?.trim() || "";
     const customerPhone = normalizeCustomerPhone(body.customerPhone || "");
     const customerEmail = body.customerEmail?.trim() || "";
+    const orderType = body.orderType === "delivery" ? "delivery" : "pickup";
     const pickupOption = body.pickupOption === "dine_in" ? "dine_in" : "takeaway";
+    const address = body.address?.trim() || "";
+    const pincode = body.pincode?.trim() || "";
+    const deliveryFee = Number(body.deliveryFee ?? 0);
     const paymentMethod = body.paymentMethod === "upi"
       ? "upi"
       : body.paymentMethod === "card"
@@ -286,8 +296,6 @@ Deno.serve(async (req: Request) => {
     const total = Number(body.total ?? 0);
     const reviewRewardCouponId = body.reviewRewardCouponId?.trim() || "";
     const reviewRewardDiscountAmount = Number(body.reviewRewardDiscountAmount ?? 0);
-    const takeawayFee = pickupOption === "takeaway" ? TAKEAWAY_FEE : 0;
-    const expectedTotal = roundCurrency(Math.max(0, subtotal - discount) + takeawayFee);
 
     if (!customerName || !customerEmail || !isValidEmail(customerEmail)) {
       return jsonResponse({ success: false, error: "Customer name and email are required" }, 400);
@@ -309,16 +317,16 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: false, error: "Invalid order total" }, 400);
     }
 
+    if (!Number.isFinite(deliveryFee) || deliveryFee < 0) {
+      return jsonResponse({ success: false, error: "Invalid delivery fee" }, 400);
+    }
+
     if (!Number.isFinite(reviewRewardDiscountAmount) || reviewRewardDiscountAmount < 0) {
       return jsonResponse({ success: false, error: "Invalid review reward discount" }, 400);
     }
 
     if (!reviewRewardCouponId && reviewRewardDiscountAmount > 0) {
       return jsonResponse({ success: false, error: "Review reward coupon is required for this discount" }, 400);
-    }
-
-    if (Math.abs(roundCurrency(total) - expectedTotal) > 0.01) {
-      return jsonResponse({ success: false, error: "Order total mismatch" }, 400);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -360,6 +368,23 @@ Deno.serve(async (req: Request) => {
         success: false,
         error: siteSettings.reopening_text || "Ordering is currently unavailable",
       }, 409);
+    }
+
+    const fulfillment = await resolveCheckoutFulfillment(adminClient, {
+      orderType,
+      pickupOption,
+      address,
+      pincode,
+      deliveryFee,
+      subtotal,
+    });
+
+    const expectedTotal = roundCurrency(
+      Math.max(0, subtotal - discount) + fulfillment.deliveryFee + fulfillment.takeawayFee,
+    );
+
+    if (Math.abs(roundCurrency(total) - expectedTotal) > 0.01) {
+      return jsonResponse({ success: false, error: "Order total mismatch" }, 400);
     }
 
     await expireStalePendingOrders(adminClient);
@@ -408,12 +433,12 @@ Deno.serve(async (req: Request) => {
       customer_name: customerName,
       customer_phone: customerPhone,
       customer_email: customerEmail,
-      address: "",
-      pincode: "",
-      order_type: "pickup",
-      pickup_option: pickupOption,
-      delivery_fee: 0,
-      takeaway_fee: takeawayFee,
+      address: fulfillment.address,
+      pincode: fulfillment.pincode,
+      order_type: fulfillment.orderType,
+      pickup_option: fulfillment.pickupOption,
+      delivery_fee: fulfillment.deliveryFee,
+      takeaway_fee: fulfillment.takeawayFee,
       subtotal,
       discount,
       total,

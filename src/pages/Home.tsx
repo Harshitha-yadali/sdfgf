@@ -15,6 +15,7 @@ import CustomizationModal from '../components/CustomizationModal';
 import ScrollReveal from '../components/ScrollReveal';
 import { staggerContainer, staggerChild } from '../lib/animations';
 import { fetchCustomizationAvailability, itemHasAssignedCustomizations, type CustomizationAvailability } from '../lib/customizations';
+import { installHomeSnapState, readHomeSnapshot, writeHomeSnapshot } from '../lib/homeSnapshot';
 import type { Category, MenuItem, Offer } from '../types';
 
 const seoFaqs = [
@@ -33,10 +34,11 @@ const seoFaqs = [
 ];
 
 export default function Home() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [bestSellers, setBestSellers] = useState<MenuItem[]>([]);
-  const [allItems, setAllItems] = useState<MenuItem[]>([]);
-  const [popularityContext, setPopularityContext] = useState<MenuPopularityContext>({
+  const initialSnapshot = useMemo(() => readHomeSnapshot(), []);
+  const [categories, setCategories] = useState<Category[]>(() => initialSnapshot?.categories || []);
+  const [bestSellers, setBestSellers] = useState<MenuItem[]>(() => initialSnapshot?.bestSellers || []);
+  const [allItems, setAllItems] = useState<MenuItem[]>(() => initialSnapshot?.allItems || []);
+  const [popularityContext, setPopularityContext] = useState<MenuPopularityContext>(() => initialSnapshot?.popularityContext || {
     slotKey: 'all_day',
     title: 'Best Sellers',
     subtitle: 'Sorted from recent orders so the most-picked items rise to the top.',
@@ -48,7 +50,8 @@ export default function Home() {
     rankedCategories: [],
     hasLiveData: false,
   });
-  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offers, setOffers] = useState<Offer[]>(() => initialSnapshot?.offers || []);
+  const [bootstrapping, setBootstrapping] = useState(() => !initialSnapshot);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [pendingAddOnItem, setPendingAddOnItem] = useState<{ cartItemId: string; menuItem: MenuItem; quantity: number } | null>(null);
   const [customizationAvailability, setCustomizationAvailability] = useState<CustomizationAvailability | null>(null);
@@ -60,35 +63,74 @@ export default function Home() {
 
   const loadData = useCallback(async () => {
     try {
-      await expireStalePendingOrders();
+      try {
+        await expireStalePendingOrders();
+      } catch (error) {
+        console.error('Failed to expire stale pending orders', error);
+      }
+
+      const [catRes, allRes, offerRes] = await Promise.all([
+        supabase.from('categories').select('*').order('display_order'),
+        supabase.from('menu_items').select('*').eq('is_available', true).order('display_order'),
+        supabase.from('offers').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(4),
+      ]);
+
+      if (catRes.error) throw catRes.error;
+      if (allRes.error) throw allRes.error;
+
+      const categoryData = catRes.data || [];
+      const itemData = allRes.data || [];
+      const visibleCategoryData = categoryData.filter((category) => (
+        itemData.some((item) => item.category_id === category.id)
+      ));
+      const sortedCategories = sortCategoriesForMenu(visibleCategoryData);
+      const activeOffers = offerRes.data || [];
+
+      setCategories(sortedCategories);
+      setAllItems(itemData);
+      if (offerRes.error) showToast(offerRes.error.message || 'Failed to load offers', 'error');
+      setOffers(activeOffers);
+
+      const [availability, popularity] = await Promise.all([
+        fetchCustomizationAvailability().catch((error) => {
+          console.error('Failed to load customization availability', error);
+          return null;
+        }),
+        fetchMenuPopularity(itemData, sortedCategories),
+      ]);
+
+      const nextBestSellers = popularity.rankedItems
+        .filter((item) => item.is_available !== false)
+        .slice(0, 12);
+
+      setCustomizationAvailability(availability);
+      setPopularityContext(popularity);
+      setBestSellers(nextBestSellers);
+
+      const snapshot = {
+        categories: sortedCategories,
+        bestSellers: nextBestSellers,
+        allItems: itemData,
+        offers: activeOffers,
+        popularityContext: popularity,
+      };
+
+      installHomeSnapState(snapshot);
+      writeHomeSnapshot(snapshot);
     } catch (error) {
-      console.error('Failed to expire stale pending orders', error);
+      console.error('Failed to load homepage data', error);
+      showToast('Failed to load homepage data', 'error');
+    } finally {
+      setBootstrapping(false);
     }
-
-    const [catRes, allRes, offerRes, availability] = await Promise.all([
-      supabase.from('categories').select('*').order('display_order'),
-      supabase.from('menu_items').select('*').eq('is_available', true).order('display_order'),
-      supabase.from('offers').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(4),
-      fetchCustomizationAvailability(),
-    ]);
-    const categoryData = catRes.data || [];
-    const itemData = allRes.data || [];
-    const visibleCategoryData = categoryData.filter((category) => (
-      itemData.some((item) => item.category_id === category.id)
-    ));
-
-    if (catRes.data) setCategories(sortCategoriesForMenu(visibleCategoryData));
-    if (allRes.data) setAllItems(allRes.data);
-    if (offerRes.error) showToast(offerRes.error.message || 'Failed to load offers', 'error');
-    setOffers(offerRes.data || []);
-    setCustomizationAvailability(availability);
-
-    const popularity = await fetchMenuPopularity(itemData, visibleCategoryData);
-    setPopularityContext(popularity);
-    setBestSellers(popularity.rankedItems.filter((item) => item.is_available !== false).slice(0, 12));
   }, [showToast]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+
+  useEffect(() => {
+    if (!initialSnapshot) return;
+    installHomeSnapState(initialSnapshot);
+  }, [initialSnapshot]);
 
   const handleImageClick = useCallback((item: MenuItem) => {
     setSelectedItem(item);
@@ -197,6 +239,10 @@ export default function Home() {
     };
   }, [categories, updateHorizontalScrollState]);
 
+  if (bootstrapping && categories.length === 0 && allItems.length === 0 && offers.length === 0) {
+    return <HomeLoadingShell />;
+  }
+
   return (
     <div className="bg-brand-bg min-h-screen pb-20">
       {offers.length > 0 && (
@@ -239,6 +285,8 @@ export default function Home() {
                           alt={`${cat.name} waffle category`}
                           loading="lazy"
                           decoding="async"
+                          width={72}
+                          height={72}
                           onError={setImageFallback}
                           className="h-full w-full rounded-full object-cover transition-transform duration-500 group-hover:scale-110"
                         />
@@ -345,6 +393,50 @@ export default function Home() {
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function HomeLoadingShell() {
+  return (
+    <div className="bg-brand-bg min-h-screen pb-20">
+      <section className="px-4 pt-4 pb-2">
+        <div className="gloss-shell h-[220px] animate-pulse rounded-[28px] sm:h-[260px]" />
+      </section>
+
+      <section className="px-4 pt-3 pb-1">
+        <div className="mb-4">
+          <div className="h-3 w-28 rounded-full bg-white/10" />
+          <div className="mt-2 h-6 w-44 rounded-full bg-white/10" />
+        </div>
+        <div className="flex gap-3 overflow-hidden">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="flex w-[88px] flex-shrink-0 flex-col items-center gap-2">
+              <div className="h-[72px] w-[72px] rounded-full border border-white/10 bg-white/[0.04]" />
+              <div className="h-3 w-16 rounded-full bg-white/10" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="pt-4 pb-1">
+        <div className="mb-3 px-4">
+          <div className="h-5 w-36 rounded-full bg-white/10" />
+          <div className="mt-2 h-3 w-56 rounded-full bg-white/10" />
+        </div>
+        <div className="flex gap-3 overflow-hidden px-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="card w-[44vw] min-w-[176px] flex-shrink-0 overflow-hidden sm:w-48 lg:w-52">
+              <div className="aspect-[5/6] bg-white/[0.04]" />
+              <div className="space-y-3 p-3.5">
+                <div className="h-4 w-3/4 rounded-full bg-white/10" />
+                <div className="h-3 w-1/2 rounded-full bg-white/10" />
+                <div className="h-4 w-20 rounded-full bg-white/10" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

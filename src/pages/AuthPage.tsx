@@ -216,6 +216,9 @@ export default function AuthPage() {
           <img
             src="/image.png"
             alt="The Supreme Waffle"
+            loading="eager"
+            width={96}
+            height={96}
             className="h-24 w-auto object-contain"
           />
         </Link>

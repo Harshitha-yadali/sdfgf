@@ -16,6 +16,7 @@ export interface MenuItem {
   prep_time: number;
   rating: number;
   is_veg: boolean;
+  is_non_veg?: boolean;
   is_eggless: boolean;
   is_available: boolean;
   manual_availability?: boolean;

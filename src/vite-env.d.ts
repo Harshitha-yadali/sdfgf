@@ -1,5 +1,13 @@
 /// <reference types="vite/client" />
 
+interface HomePageState {
+  categories: unknown[];
+  bestSellers: unknown[];
+  allItems: unknown[];
+  offers: unknown[];
+  popularityContext: Record<string, unknown>;
+}
+
 interface RazorpaySuccessResponse {
   razorpay_payment_id: string;
   razorpay_order_id: string;
@@ -57,4 +65,6 @@ interface RazorpayInstance {
 
 interface Window {
   Razorpay?: new (options: RazorpayOptions) => RazorpayInstance;
+  __HOME_PAGE_STATE__?: HomePageState;
+  snapSaveState?: () => Record<string, unknown>;
 }

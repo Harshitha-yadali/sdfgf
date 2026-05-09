@@ -52,6 +52,7 @@ export default function RouteSeo() {
     setNamedMeta('twitter:card', 'summary_large_image');
     setNamedMeta('twitter:title', metadata.title);
     setNamedMeta('twitter:description', metadata.description);
+    setNamedMeta('twitter:url', canonicalUrl);
     setNamedMeta('twitter:image', imageUrl);
     setNamedMeta('twitter:image:alt', `${seoSiteName} logo and desserts`);
 
@@ -167,7 +168,7 @@ function getRouteMetadata(pathname: string, search: string): SeoMetadata {
       ? `${searchTerm} Menu Results${categoryName ? ` In ${categoryName}` : ''} | ${seoSiteName}`
       : categoryName
         ? `${categoryName} Menu | ${seoSiteName}`
-        : `Waffle Menu | ${seoSiteName}`;
+        : `Menu | Belgian Waffles, Thick Shakes & Dessert Combos | ${seoSiteName}`;
     const description = searchTerm
       ? `Search The Supreme Waffle menu for ${searchTerm}${categoryName ? ` in ${categoryName}` : ''}, including waffles, shakes, desserts, fries, chats, and combos.`
       : categoryName
@@ -237,8 +238,8 @@ function getRouteMetadata(pathname: string, search: string): SeoMetadata {
 
   if (pathname === '/about') {
     return {
-      title: `About Us | ${seoSiteName}`,
-      description: 'Learn about The Supreme Waffle, our handcrafted dessert philosophy, kitchen standards, and customer support channels.',
+      title: `About Us | ${seoSiteName}, Kanuru Vijayawada`,
+      description: 'Learn about The Supreme Waffle in Kanuru, Vijayawada, our handcrafted dessert philosophy, kitchen standards, and customer support channels.',
       path: '/about',
       robots: defaultRobots,
       keywords: [...seoDefaultKeywords, 'about The Supreme Waffle', 'waffle cafe story', 'waffle cafe Vijayawada', 'dessert cafe Kanuru'],
@@ -247,8 +248,8 @@ function getRouteMetadata(pathname: string, search: string): SeoMetadata {
           '@type': 'AboutPage',
           '@id': buildSeoUrl('/about#webpage'),
           url: buildSeoUrl('/about'),
-          name: `About ${seoSiteName}`,
-          description: 'Learn about The Supreme Waffle, our handcrafted desserts, and our customer-first service.',
+          name: `About Us | ${seoSiteName}, Kanuru Vijayawada`,
+          description: 'Learn about The Supreme Waffle in Kanuru, Vijayawada, our handcrafted desserts, and our customer-first service.',
           isPartOf: {
             '@id': buildSeoUrl('/#website'),
           },
@@ -260,6 +261,36 @@ function getRouteMetadata(pathname: string, search: string): SeoMetadata {
         buildBreadcrumbSchema([
           { name: 'Home', path: '/' },
           { name: 'About', path: '/about' },
+        ]),
+      ]),
+    };
+  }
+
+  if (pathname === '/contact') {
+    return {
+      title: `Contact & Location | ${seoSiteName}, Police Station Road`,
+      description: 'Contact The Supreme Waffle on Police Station Road, Kanuru, Vijayawada for store queries, directions, and dessert orders.',
+      path: '/contact',
+      robots: defaultRobots,
+      keywords: [...seoDefaultKeywords, 'contact The Supreme Waffle', 'The Supreme Waffle location', 'Police Station Road Kanuru waffles', 'waffle shop Vijayawada contact'],
+      schema: buildSchemaGraph([
+        {
+          '@type': 'ContactPage',
+          '@id': buildSeoUrl('/contact#webpage'),
+          url: buildSeoUrl('/contact'),
+          name: `Contact & Location | ${seoSiteName}, Police Station Road`,
+          description: 'Contact The Supreme Waffle in Kanuru, Vijayawada for directions, orders, and store support.',
+          isPartOf: {
+            '@id': buildSeoUrl('/#website'),
+          },
+          about: {
+            '@id': buildSeoUrl('/#restaurant'),
+          },
+        },
+        organizationSchema,
+        buildBreadcrumbSchema([
+          { name: 'Home', path: '/' },
+          { name: 'Contact', path: '/contact' },
         ]),
       ]),
     };

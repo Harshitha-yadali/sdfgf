@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 
 const INVENTORY_COLUMN_NAMES = ['available_quantity', 'manual_availability', 'track_inventory'];
+const DIETARY_COLUMN_NAMES = ['is_non_veg'];
 const EXPIRE_ORDERS_FUNCTION_NAME = 'expire_stale_pending_orders';
 const EXPIRE_ORDERS_UNAVAILABLE_STORAGE_KEY = 'supreme-waffle-expire-orders-rpc-unavailable';
 
@@ -12,6 +13,11 @@ type SupabaseLikeError = {
 export function isMissingInventorySchemaError(error: SupabaseLikeError | null | undefined) {
   const message = error?.message?.toLowerCase() || '';
   return INVENTORY_COLUMN_NAMES.some((columnName) => message.includes(columnName));
+}
+
+export function isMissingDietarySchemaError(error: SupabaseLikeError | null | undefined) {
+  const message = error?.message?.toLowerCase() || '';
+  return DIETARY_COLUMN_NAMES.some((columnName) => message.includes(columnName));
 }
 
 export function isMissingExpireOrdersFunctionError(error: SupabaseLikeError | null | undefined) {
@@ -27,6 +33,23 @@ export async function detectInventorySchemaSupport() {
 
   if (error) {
     if (isMissingInventorySchemaError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
+
+  return true;
+}
+
+export async function detectDietarySchemaSupport() {
+  const { error } = await supabase
+    .from('menu_items')
+    .select('id, is_non_veg')
+    .limit(1);
+
+  if (error) {
+    if (isMissingDietarySchemaError(error)) {
       return false;
     }
 

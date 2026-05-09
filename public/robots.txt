@@ -1,12 +1,4 @@
 User-agent: *
 Allow: /
-Disallow: /admin
-Disallow: /chef
-Disallow: /auth
-Disallow: /cart
-Disallow: /profile
-Disallow: /my-orders
-Disallow: /order-success
-Disallow: /track
 
-Sitemap: https://thesupreme.waffle/sitemap.xml
+Sitemap: https://thesupremewaffle.com/sitemap.xml

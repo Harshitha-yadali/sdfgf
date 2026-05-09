@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, LogOut, Package, ChevronDown } from 'lucide-react';
+import { User, LogOut, Package, ChevronDown, Phone, ShoppingBag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
+import { useCart } from '../contexts/CartContext';
 import { dropdownVariants } from '../lib/animations';
+import { storePhoneDisplay, storePhoneHref } from '../lib/storeInfo';
 
 const navItems = [
   { to: '/', label: 'Home' },
@@ -17,6 +19,7 @@ export default function Header() {
   const [profileOpen, setProfileOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { user, profile, signOut } = useAuth();
+  const { itemCount, subtotal } = useCart();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -44,6 +47,9 @@ export default function Header() {
   const displayName = profile?.full_name || profile?.email || user?.email || 'User';
   const displayPhone = profile?.phone || '';
   const displayEmail = profile?.email || user?.email || '';
+  const showHeaderCart = itemCount > 0
+    && location.pathname !== '/cart'
+    && !location.pathname.startsWith('/order-success');
 
   function isActiveNavItem(path: string) {
     if (path === '/') return location.pathname === '/';
@@ -53,17 +59,20 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 px-2 pt-2.5 sm:px-0 sm:pt-3">
       <div className="mx-auto w-full max-w-7xl px-0 sm:px-6 lg:px-8">
-        <div className="gloss-shell glow-border inline-flex h-[56px] w-fit items-center rounded-[22px] px-2.5 sm:flex sm:h-[60px] sm:w-full sm:justify-between sm:px-5 lg:h-[72px]">
-          <div className="flex min-w-0 items-center gap-4 lg:gap-6">
+        <div className="gloss-shell glow-border flex h-[56px] w-full items-center justify-between rounded-[22px] px-2.5 sm:h-[60px] sm:px-5 lg:h-[72px]">
+          <div className="flex min-w-0 items-center gap-3 lg:gap-6">
             <Link
               to="/"
               className="flex flex-shrink-0 items-center rounded-[16px] border border-white/10 bg-black/10 px-2 py-1.5 backdrop-blur-xl transition-transform duration-300 hover:scale-[1.02] sm:rounded-[18px] sm:px-3 sm:py-2"
               aria-label="The Supreme Waffle home"
             >
               <img
-                src="https://res.cloudinary.com/dlkovvlud/image/upload/v1771590689/Screenshot_2026-02-20_175222-removebg-preview_ufalk6.png"
+                src="https://res.cloudinary.com/dlkovvlud/image/upload/f_auto,q_auto/v1771590689/Screenshot_2026-02-20_175222-removebg-preview_ufalk6.png"
                 alt="The Supreme Waffle - Premium Gourmet Waffles"
+                loading="eager"
                 fetchPriority="high"
+                width={240}
+                height={96}
                 className="h-8 w-auto max-w-[120px] object-contain drop-shadow-[0_0_12px_rgba(255,215,0,0.15)] sm:h-12 sm:max-w-none lg:h-14"
               />
             </Link>
@@ -89,64 +98,101 @@ export default function Header() {
             </nav>
           </div>
 
-          <div className="hidden items-center gap-2 sm:flex">
-            {user ? (
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  onClick={() => setProfileOpen(!profileOpen)}
-                  className="hidden items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[14px] font-semibold text-brand-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/25 hover:text-white sm:flex"
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full border border-brand-gold/25 bg-brand-gold/10 shadow-[0_0_24px_rgba(216,178,78,0.1)]">
-                    <User size={16} className="text-brand-gold" strokeWidth={2.5} />
-                  </div>
-                  <span className="max-w-[80px] truncate hidden lg:inline">{displayName}</span>
-                  <ChevronDown size={14} className={`text-brand-text-dim transition-transform duration-200 ${profileOpen ? 'rotate-180' : ''}`} />
-                </button>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <a
+              href={storePhoneHref}
+              className="inline-flex items-center gap-1.5 rounded-[16px] border border-brand-gold/25 bg-brand-gold/10 px-2.5 py-2 text-[11px] font-bold text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-all hover:border-brand-gold/45 hover:text-brand-gold-soft sm:hidden"
+              aria-label={`Call ${storePhoneDisplay}`}
+            >
+              <Phone size={14} strokeWidth={2.4} />
+              <span>{storePhoneDisplay}</span>
+            </a>
 
-                <AnimatePresence>
-                  {profileOpen && (
-                    <motion.div
-                      variants={dropdownVariants}
-                      initial="hidden"
-                      animate="visible"
-                      exit="exit"
-                      className="gloss-shell absolute right-0 top-full z-50 mt-3 w-56 rounded-2xl py-1.5 shadow-elevated"
-                      style={{ transformOrigin: 'top right' }}
-                    >
-                      <div className="border-b border-white/10 px-4 py-3">
-                        <p className="font-bold text-[15px] text-white truncate">{displayName}</p>
-                        {displayEmail && <p className="text-[13px] font-medium text-brand-text-dim truncate mt-0.5">{displayEmail}</p>}
-                        {displayPhone && <p className="text-[12px] font-medium text-brand-text-dim truncate mt-0.5">Phone: {displayPhone}</p>}
-                      </div>
-                      <Link
-                        to="/my-orders"
-                        onClick={() => setProfileOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3 text-[14px] font-semibold text-brand-text-muted transition-colors hover:bg-white/[0.05] hover:text-white"
-                      >
-                        <Package size={16} strokeWidth={2.2} />
-                        My Orders
-                      </Link>
-                      <button
-                        onClick={handleSignOut}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-[14px] font-semibold text-brand-text-muted transition-colors hover:bg-white/[0.05] hover:text-white"
-                      >
-                        <LogOut size={16} strokeWidth={2.2} />
-                        Sign Out
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ) : (
+            <a
+              href={storePhoneHref}
+              className="hidden h-11 w-11 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.04] text-brand-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/25 hover:text-brand-gold sm:inline-flex"
+              aria-label={`Call ${storePhoneDisplay}`}
+            >
+              <Phone size={17} strokeWidth={2.4} />
+            </a>
+
+            {showHeaderCart && (
               <Link
-                to="/auth"
-                state={{ from: location.pathname }}
-                className="hidden items-center gap-1.5 rounded-[18px] border border-brand-gold/35 bg-brand-gold/10 px-4 py-2.5 text-[14px] font-bold text-brand-gold shadow-[0_12px_28px_rgba(216,178,78,0.08),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/55 hover:bg-brand-gold/15 hover:text-brand-gold-soft sm:flex"
+                to="/cart"
+                className="hidden items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.04] px-2.5 py-2.5 text-brand-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/25 hover:text-white sm:inline-flex"
+                aria-label={`View cart with ${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}
               >
-                <User size={16} strokeWidth={2.5} />
-                Sign In
+                <span className="relative flex h-9 w-9 items-center justify-center rounded-full border border-brand-gold/25 bg-brand-gold/10 shadow-[0_0_24px_rgba(216,178,78,0.1)]">
+                  <ShoppingBag size={16} className="text-brand-gold" strokeWidth={2.4} />
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-gold px-1 text-[10px] font-extrabold text-brand-bg">
+                    {itemCount}
+                  </span>
+                </span>
+                <span className="hidden text-[13px] font-bold text-white tabular-nums xl:block">
+                  {'\u20B9'}{subtotal.toFixed(0)}
+                </span>
               </Link>
             )}
+
+            <div className="hidden items-center gap-2 sm:flex">
+              {user ? (
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={() => setProfileOpen(!profileOpen)}
+                    className="hidden items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[14px] font-semibold text-brand-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/25 hover:text-white sm:flex"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-brand-gold/25 bg-brand-gold/10 shadow-[0_0_24px_rgba(216,178,78,0.1)]">
+                      <User size={16} className="text-brand-gold" strokeWidth={2.5} />
+                    </div>
+                    <span className="hidden max-w-[80px] truncate lg:inline">{displayName}</span>
+                    <ChevronDown size={14} className={`text-brand-text-dim transition-transform duration-200 ${profileOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {profileOpen && (
+                      <motion.div
+                        variants={dropdownVariants}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                        className="gloss-shell absolute right-0 top-full z-50 mt-3 w-56 rounded-2xl py-1.5 shadow-elevated"
+                        style={{ transformOrigin: 'top right' }}
+                      >
+                        <div className="border-b border-white/10 px-4 py-3">
+                          <p className="truncate text-[15px] font-bold text-white">{displayName}</p>
+                          {displayEmail && <p className="mt-0.5 truncate text-[13px] font-medium text-brand-text-dim">{displayEmail}</p>}
+                          {displayPhone && <p className="mt-0.5 truncate text-[12px] font-medium text-brand-text-dim">Phone: {displayPhone}</p>}
+                        </div>
+                        <Link
+                          to="/my-orders"
+                          onClick={() => setProfileOpen(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-[14px] font-semibold text-brand-text-muted transition-colors hover:bg-white/[0.05] hover:text-white"
+                        >
+                          <Package size={16} strokeWidth={2.2} />
+                          My Orders
+                        </Link>
+                        <button
+                          onClick={handleSignOut}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-[14px] font-semibold text-brand-text-muted transition-colors hover:bg-white/[0.05] hover:text-white"
+                        >
+                          <LogOut size={16} strokeWidth={2.2} />
+                          Sign Out
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <Link
+                  to="/auth"
+                  state={{ from: location.pathname }}
+                  className="hidden items-center gap-1.5 rounded-[18px] border border-brand-gold/35 bg-brand-gold/10 px-4 py-2.5 text-[14px] font-bold text-brand-gold shadow-[0_12px_28px_rgba(216,178,78,0.08),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/55 hover:bg-brand-gold/15 hover:text-brand-gold-soft sm:flex"
+                >
+                  <User size={16} strokeWidth={2.5} />
+                  Sign In
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>

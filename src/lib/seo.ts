@@ -1,9 +1,10 @@
 export type SeoSchemaNode = Record<string, unknown>;
 
 export const seoSiteName = 'The Supreme Waffle';
-export const seoDefaultTitle = 'Best Waffles, Thick Shakes & Dessert Combos in Vijayawada | The Supreme Waffle';
+export const seoDefaultTitle = 'The Supreme Waffle | Best Waffles & Thick Shakes in Vijayawada';
 export const seoDefaultDescription = 'The Supreme Waffle in Vijayawada serves Belgian waffles, eggless waffles, thick shakes, milkshakes, dessert combos, fries, momos, burgers, and snack favorites from Police Station Road, Kanuru. Order online for dine-in and takeaway pickup.';
 export const seoDefaultImage = '/logo-full.png';
+export const seoDefaultSchemaImage = 'https://res.cloudinary.com/dlkovvlud/image/upload/f_auto,q_auto/v1771590689/Screenshot_2026-02-20_175222-removebg-preview_ufalk6.png';
 export const seoDefaultKeywords = [
   'The Supreme Waffle',
   'The Supreme Waffle Vijayawada',
@@ -71,7 +72,7 @@ export const seoDefaultKeywords = [
   'Police Station Road Kanuru food',
 ];
 
-const fallbackSiteUrl = 'https://thesupreme.waffle';
+const fallbackSiteUrl = 'https://thesupremewaffle.com';
 const configuredSiteUrl = trimTrailingSlash((import.meta.env.VITE_SITE_URL as string | undefined)?.trim() || '');
 const runtimeOrigin = typeof window !== 'undefined' ? trimTrailingSlash(window.location.origin) : '';
 
@@ -122,22 +123,37 @@ export const restaurantSchema = {
   '@id': buildSeoUrl('/#restaurant'),
   name: seoSiteName,
   url: buildSeoUrl('/'),
-  image: [
-    buildSeoUrl('/logo-full.png'),
-    buildSeoUrl('/image.png'),
-  ],
+  image: seoDefaultSchemaImage,
   description: seoDefaultDescription,
   email: 'thesupremewafflee@gmail.com',
   telephone: '+91 98765 43210',
-  servesCuisine: ['Waffles', 'Belgian Waffles', 'Desserts', 'Milkshakes', 'Thick Shakes', 'Fast Food', 'Street Food'],
-  priceRange: '$$',
+  servesCuisine: ['Desserts', 'Waffles', 'Beverages'],
+  priceRange: '₹₹',
   menu: buildSeoUrl('/menu'),
   hasMenu: buildSeoUrl('/menu'),
+  acceptsReservations: false,
+  openingHoursSpecification: [
+    {
+      '@type': 'OpeningHoursSpecification',
+      dayOfWeek: [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ],
+      opens: '11:00',
+      closes: '23:00',
+    },
+  ],
   address: {
     '@type': 'PostalAddress',
     streetAddress: 'Police Station Road, Kanuru',
     addressLocality: 'Vijayawada',
     addressRegion: 'Andhra Pradesh',
+    postalCode: '520007',
     addressCountry: 'IN',
   },
   areaServed: ['Vijayawada', 'Benz Circle', 'Kanuru'],

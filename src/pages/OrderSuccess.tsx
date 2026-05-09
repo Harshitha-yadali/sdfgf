@@ -6,6 +6,7 @@ import { clearCheckoutSuccessOrder } from '../lib/checkoutSuccess';
 import { clearPendingOnlineOrder, readPendingOnlineOrder } from '../lib/pendingOnlineOrder';
 import { supabase } from '../lib/supabase';
 import { getPaymentMethodLabel, getPendingPaymentLabel, getReadyOrderLabel, getServiceModeLabel, isAwaitingCounterPayment, isAwaitingOnlinePayment } from '../lib/orderLabels';
+import { fetchAccessibleOrderDetails } from '../lib/orderLookup';
 import { RAZORPAY_BRAND_IMAGE, buildRazorpayCallbackUrl, createExistingRazorpayOrder, loadRazorpayScript, reconcileRazorpayPayment, verifyRazorpayPayment } from '../lib/razorpay';
 import { getRazorpayPrefillContact } from '../lib/checkoutCustomer';
 import type { Order, MenuItem, OrderStatus } from '../types';
@@ -148,16 +149,33 @@ export default function OrderSuccessPage() {
     prevStatusRef.current = null;
     pickupAlertPlayedRef.current = false;
     setLoading(true);
+    const currentOrderId = orderId;
 
     async function loadOrder() {
       if (!user) {
-        const guestOrder = readGuestOrderSnapshot(orderId);
+        const guestOrder = readGuestOrderSnapshot(currentOrderId);
         if (!isMounted) {
           return;
         }
 
         setOrder(guestOrder);
         setLoading(false);
+
+        if (!guestOrder?.customer_email) {
+          return;
+        }
+
+        try {
+          const { order: freshOrder } = await fetchAccessibleOrderDetails(currentOrderId, guestOrder.customer_email);
+          if (!isMounted) {
+            return;
+          }
+
+          updateGuestOrderSnapshot(currentOrderId, freshOrder);
+          setOrder(freshOrder);
+        } catch (error) {
+          console.error('Failed to refresh guest order', error);
+        }
         return;
       }
 
@@ -165,14 +183,14 @@ export default function OrderSuccessPage() {
         .from('orders')
         .select('*')
         .eq('user_id', user.id)
-        .eq('order_id', orderId)
+        .eq('order_id', currentOrderId)
         .maybeSingle();
 
       if (!isMounted) {
         return;
       }
 
-      setOrder(data ?? readGuestOrderSnapshot(orderId));
+      setOrder(data ?? readGuestOrderSnapshot(currentOrderId));
       setLoading(false);
     }
 
@@ -212,6 +230,10 @@ export default function OrderSuccessPage() {
 
     prevStatusRef.current = currentOrder.status;
 
+    if (!user) {
+      return;
+    }
+
     const channel = supabase
       .channel(`order-${currentOrder.order_id}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `order_id=eq.${currentOrder.order_id}` }, (payload) => {
@@ -222,7 +244,40 @@ export default function OrderSuccessPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [order, showToast]);
+  }, [order, showToast, user]);
+
+  useEffect(() => {
+    if (!order || user || !order.customer_email) return;
+    if (['delivered', 'cancelled', 'expired'].includes(order.status)) return;
+
+    let isMounted = true;
+
+    const refreshGuestOrder = async () => {
+      try {
+        const { order: freshOrder } = await fetchAccessibleOrderDetails(order.order_id, order.customer_email);
+        if (!isMounted) {
+          return;
+        }
+
+        updateGuestOrderSnapshot(order.order_id, freshOrder);
+        setOrder((currentOrder) => currentOrder && currentOrder.order_id === freshOrder.order_id
+          ? freshOrder
+          : currentOrder);
+      } catch (error) {
+        console.error('Failed to poll guest order status', error);
+      }
+    };
+
+    void refreshGuestOrder();
+    const interval = setInterval(() => {
+      void refreshGuestOrder();
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [order, user]);
 
   useEffect(() => {
     if (!order) return;
@@ -408,6 +463,17 @@ export default function OrderSuccessPage() {
         if (data) setOrder(data as Order);
       } catch (err) {
         console.error('Failed to refresh order', err);
+      }
+      return;
+    }
+
+    if (order?.customer_email) {
+      try {
+        const { order: freshOrder } = await fetchAccessibleOrderDetails(order.order_id, order.customer_email);
+        updateGuestOrderSnapshot(order.order_id, freshOrder);
+        setOrder(freshOrder);
+      } catch (err) {
+        console.error('Failed to refresh guest order', err);
       }
     }
   }
@@ -601,7 +667,9 @@ export default function OrderSuccessPage() {
   const isPickup = order.order_type === 'pickup';
   const isOnlinePaymentPending = isAwaitingOnlinePayment(order);
   const isCounterPaymentPending = isAwaitingCounterPayment(order);
-  const isQueuePending = isPending && !isCounterPaymentPending && !isOnlinePaymentPending;
+  const isCounterPaymentPendingBeforeAcceptance = isCounterPaymentPending && isPending;
+  const isCounterPaymentPendingAfterAcceptance = isCounterPaymentPending && !isPending;
+  const isQueuePending = isPending && !isCounterPaymentPendingBeforeAcceptance && !isOnlinePaymentPending;
   const isPreparing = order.status === 'preparing';
   const isPickupReady = isPickup && order.status === 'packed';
   const isDeliveryPacked = !isPickup && order.status === 'packed';
@@ -691,7 +759,7 @@ export default function OrderSuccessPage() {
           </motion.div>
         )}
 
-        {isCounterPaymentPending && (
+        {isCounterPaymentPendingBeforeAcceptance && (
           <motion.div key="payment-pending" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.4 }}>
             <motion.div
               initial={{ scale: 0.8, opacity: 0 }}
@@ -825,10 +893,17 @@ export default function OrderSuccessPage() {
             </button>
           </div>
 
-          {isCounterPaymentPending && (
+          {isCounterPaymentPendingBeforeAcceptance && (
             <div className="mt-4 flex items-center justify-center gap-2 bg-amber-500/10 rounded-2xl px-4 py-3 border border-amber-500/20">
               <Wallet size={16} className="text-amber-400" />
               <span className="text-[14px] font-bold text-amber-400">Payment pending at the counter.</span>
+            </div>
+          )}
+
+          {isCounterPaymentPendingAfterAcceptance && (
+            <div className="mt-4 flex items-center justify-center gap-2 bg-amber-500/10 rounded-2xl px-4 py-3 border border-amber-500/20">
+              <ChefHat size={16} className="text-amber-400" />
+              <span className="text-[14px] font-bold text-amber-400">Order accepted. Please wait while we prepare it.</span>
             </div>
           )}
 
@@ -885,10 +960,18 @@ export default function OrderSuccessPage() {
             </div>
           )}
 
-          {isCounterPaymentPending && (
+          {isCounterPaymentPendingBeforeAcceptance && (
             <div className="mt-4 bg-amber-500/5 rounded-2xl px-4 py-3">
               <p className="text-[14px] text-brand-text-muted font-semibold">
                 Tell the staff your order ID and complete payment at the counter, or use the online payment option below. Your order will move to the queue once payment is confirmed.
+              </p>
+            </div>
+          )}
+
+          {isCounterPaymentPendingAfterAcceptance && (
+            <div className="mt-4 bg-amber-500/5 rounded-2xl px-4 py-3">
+              <p className="text-[14px] text-brand-text-muted font-semibold">
+                Your order has already been accepted. Payment will be collected at the counter while your food is being prepared.
               </p>
             </div>
           )}
@@ -925,8 +1008,8 @@ export default function OrderSuccessPage() {
             </div>
           )}
 
-          {(isCounterPaymentPending || (order.order_type === 'delivery' && order.payment_method === 'cod' && order.payment_status !== 'paid')) && !isDelivered && !isExpired && !isCancelled && (
-            <PaymentInstructionCard order={order} onPayOnline={isCounterPaymentPending ? handlePayOnlineNow : undefined} payingOnline={payingOnline} />
+          {(isCounterPaymentPendingBeforeAcceptance || (order.order_type === 'delivery' && order.payment_method === 'cod' && order.payment_status !== 'paid')) && !isDelivered && !isExpired && !isCancelled && (
+            <PaymentInstructionCard order={order} onPayOnline={isCounterPaymentPendingBeforeAcceptance ? handlePayOnlineNow : undefined} payingOnline={payingOnline} />
           )}
 
           <div className="mt-6 pt-4 border-t border-brand-border text-[14px] text-brand-text-muted">
@@ -1106,6 +1189,9 @@ function SpecialsSuggestions({ items, onViewMenu }: { items: MenuItem[]; onViewM
                 <img
                   src={item.image_url}
                   alt={item.name}
+                  loading="lazy"
+                  width={200}
+                  height={200}
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                 />
               </div>
@@ -1129,6 +1215,9 @@ function SpecialsSuggestions({ items, onViewMenu }: { items: MenuItem[]; onViewM
               <img
                 src={item.image_url}
                 alt={item.name}
+                loading="lazy"
+                width={44}
+                height={44}
                 className="w-11 h-11 rounded-lg object-cover shrink-0 group-hover:scale-105 transition-transform"
               />
               <div className="flex-1 min-w-0">

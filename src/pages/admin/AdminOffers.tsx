@@ -1004,7 +1004,10 @@ export default function AdminOffers() {
                   <>
                     <img
                       src={slideBackgroundImage}
-                      alt=""
+                      alt={offer ? `${offer.title} offer background preview` : 'Offer background preview'}
+                      loading="lazy"
+                      width={1200}
+                      height={600}
                       className="absolute inset-0 h-full w-full object-cover"
                       onError={() => markImageFailed(slideBackgroundImage)}
                     />
@@ -1543,7 +1546,10 @@ export default function AdminOffers() {
                   <>
                     <img
                       src={normalizeImageUrl(previewOffer.background_image_url) as string}
-                      alt=""
+                      alt={`${previewOffer.title} offer preview background`}
+                      loading="lazy"
+                      width={1200}
+                      height={600}
                       className="absolute inset-0 h-full w-full object-cover"
                       onError={() => markImageFailed(normalizeImageUrl(previewOffer.background_image_url) as string)}
                     />
@@ -1610,7 +1616,10 @@ export default function AdminOffers() {
                 {backgroundImageUrl ? (
                   <img
                     src={backgroundImageUrl}
-                    alt=""
+                    alt={`${offer.title} offer thumbnail`}
+                    loading="lazy"
+                    width={56}
+                    height={56}
                     className="h-14 w-14 rounded-xl object-cover flex-shrink-0"
                     onError={() => markImageFailed(backgroundImageUrl)}
                   />

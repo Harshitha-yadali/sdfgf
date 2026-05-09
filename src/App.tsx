@@ -7,6 +7,7 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import BottomNav from './components/BottomNav';
 import FloatingCart from './components/FloatingCart';
+import FloatingWhatsAppButton from './components/FloatingWhatsAppButton';
 import SiteClosedOverlay from './components/SiteClosedOverlay';
 import RouteSeo from './components/RouteSeo';
 import Home from './pages/Home';
@@ -16,6 +17,7 @@ import Offers from './pages/Offers';
 import OrderSuccess from './pages/OrderSuccess';
 import TrackOrder from './pages/TrackOrder';
 import About from './pages/About';
+import Contact from './pages/Contact';
 import AuthPage from './pages/AuthPage';
 import MyOrders from './pages/MyOrders';
 import Profile from './pages/Profile';
@@ -33,7 +35,7 @@ import AdminMessages from './pages/admin/AdminMessages';
 import AdminWebsite from './pages/admin/AdminWebsite';
 import ChefLogin from './pages/chef/ChefLogin';
 import ChefDashboard from './pages/chef/ChefDashboard';
-import { useLayoutEffect, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { useSiteSettings } from './hooks/useSiteSettings';
 
 function LoadingSpinner() {
@@ -82,6 +84,7 @@ function CustomerLayout({ children }: { children: ReactNode }) {
       <Header />
       <main className="customer-main">{children}</main>
       <FloatingCart />
+      <FloatingWhatsAppButton />
       <Footer />
       <BottomNav />
     </CustomerAccessGate>
@@ -91,9 +94,30 @@ function CustomerLayout({ children }: { children: ReactNode }) {
 function ScrollToTop() {
   const { pathname, search, hash } = useLocation();
 
+  useEffect(() => {
+    if (!('scrollRestoration' in window.history)) return;
+
+    const previousSetting = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+
+    return () => {
+      window.history.scrollRestoration = previousSetting;
+    };
+  }, []);
+
   useLayoutEffect(() => {
     if (hash) return;
-    window.scrollTo(0, 0);
+
+    const resetScrollPosition = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    resetScrollPosition();
+    const frameId = window.requestAnimationFrame(resetScrollPosition);
+
+    return () => window.cancelAnimationFrame(frameId);
   }, [pathname, search, hash]);
 
   return null;
@@ -138,6 +162,7 @@ export default function App() {
                 <Route path="/track" element={<CustomerLayout><TrackOrder /></CustomerLayout>} />
                 <Route path="/track/:orderId" element={<CustomerLayout><TrackOrder /></CustomerLayout>} />
                 <Route path="/about" element={<CustomerLayout><About /></CustomerLayout>} />
+                <Route path="/contact" element={<CustomerLayout><Contact /></CustomerLayout>} />
                 <Route path="/auth" element={<CustomerAccessGate><AuthPage /></CustomerAccessGate>} />
                 <Route path="/profile" element={<CustomerLayout><Profile /></CustomerLayout>} />
                 <Route path="/my-orders" element={<CustomerLayout><MyOrders /></CustomerLayout>} />

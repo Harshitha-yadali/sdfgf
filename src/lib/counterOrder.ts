@@ -1,5 +1,5 @@
 import { customerSupabase } from './supabase';
-import type { PaymentMethod, PickupOption, SelectedCustomization } from '../types';
+import type { OrderType, PaymentMethod, PickupOption, SelectedCustomization } from '../types';
 
 interface CounterOrderItemInput {
   menu_item_id: string;
@@ -13,7 +13,11 @@ interface CreateCounterOrderPayload {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  orderType: OrderType;
   pickupOption: PickupOption;
+  address: string;
+  pincode: string;
+  deliveryFee: number;
   subtotal: number;
   discount: number;
   total: number;

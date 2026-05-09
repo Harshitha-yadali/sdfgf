@@ -330,7 +330,7 @@ export default function MenuPage() {
     const highlightedItems = filteredItems.slice(0, 24);
     const menuDescription = currentCategory
       ? `Browse ${currentCategory.name} at ${seoSiteName}, including ${highlightedItems.slice(0, 4).map((item) => item.name).join(', ')}.`
-      : `Browse the full ${seoSiteName} menu including waffles, shakes, chats, fries, momos, burgers, and desserts.`;
+      : `Browse the complete menu at ${seoSiteName} with Belgian waffles, thick shakes, dessert combos, fries, momos, burgers, and more.`;
     const keywordSet = new Set([
       ...seoDefaultKeywords,
       ...(currentCategory ? [currentCategory.name.toLowerCase(), `${currentCategory.name.toLowerCase()} menu`] : ['full dessert menu', 'waffle shop menu']),

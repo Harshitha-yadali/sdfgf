@@ -21,7 +21,7 @@ export default function FloatingCart() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 80, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          className="customer-floating-cart"
+          className="customer-floating-cart lg:hidden"
         >
           <Link to="/cart">
             <motion.div
@@ -48,16 +48,14 @@ export default function FloatingCart() {
                 </div>
                 <div className="text-brand-bg">
                   <span className="text-[14px] font-extrabold">
-                    {itemCount} {itemCount === 1 ? 'item' : 'items'}
-                  </span>
-                  <span className="mx-2 text-brand-bg/50">|</span>
-                  <span className="text-[14px] font-extrabold tabular-nums">
-                    {'\u20B9'}{subtotal}
+                    View Cart ({itemCount} {itemCount === 1 ? 'item' : 'items'})
                   </span>
                 </div>
               </div>
               <div className="flex items-center gap-1 text-brand-bg">
-                <span className="text-[13px] font-bold">View Cart</span>
+                <span className="text-[14px] font-extrabold tabular-nums">
+                  {'\u20B9'}{subtotal.toFixed(0)}
+                </span>
                 <ChevronRight size={16} strokeWidth={2.5} />
               </div>
             </motion.div>

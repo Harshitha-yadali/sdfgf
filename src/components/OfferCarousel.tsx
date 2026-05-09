@@ -145,6 +145,10 @@ export default function OfferCarousel({
                 <img
                   src={activeBannerBackgroundImage}
                   alt={activeOffer.title}
+                  loading="eager"
+                  fetchPriority="high"
+                  width={1600}
+                  height={900}
                   className="absolute inset-0 h-full w-full object-cover object-[76%_center] sm:object-center"
                   onError={() => markImageFailed(activeBannerBackgroundImage)}
                 />

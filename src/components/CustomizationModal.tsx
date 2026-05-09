@@ -251,6 +251,8 @@ export default function CustomizationModal({
                 alt={item.name}
                 loading="eager"
                 decoding="async"
+                width={304}
+                height={304}
                 onError={() => {
                   const fallbackImage = item.image_url || '/image.png';
                   if (imageSrc !== fallbackImage) {
