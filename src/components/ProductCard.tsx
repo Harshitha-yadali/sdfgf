@@ -85,6 +85,18 @@ export default function ProductCard({ item, onImageClick, onAdd }: ProductCardPr
         <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/85 backdrop-blur-xl">
           Fresh pick
         </div>
+        {dietaryBadges.length > 0 && (
+          <div className="absolute right-3 top-3 z-10 flex flex-col items-end gap-1.5">
+            {dietaryBadges.map((badge) => (
+              <span
+                key={badge.key}
+                className={`${badge.className} px-2 py-0.5 text-[10px] shadow-[0_10px_24px_rgba(8,12,7,0.24)] backdrop-blur-xl`}
+              >
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        )}
       </motion.button>
 
       <div className="p-3.5">
@@ -98,16 +110,6 @@ export default function ProductCard({ item, onImageClick, onAdd }: ProductCardPr
         >
           {item.name}
         </motion.h3>
-
-        {dietaryBadges.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {dietaryBadges.map((badge) => (
-              <span key={badge.key} className={`${badge.className} px-2 py-0.5 text-[11px]`}>
-                {badge.label}
-              </span>
-            ))}
-          </div>
-        )}
 
         <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[12px] font-semibold text-brand-text-dim shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
           <Clock size={12} className="text-brand-gold" strokeWidth={2.2} />
