@@ -7,7 +7,6 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import BottomNav from './components/BottomNav';
 import FloatingCart from './components/FloatingCart';
-import FloatingWhatsAppButton from './components/FloatingWhatsAppButton';
 import SiteClosedOverlay from './components/SiteClosedOverlay';
 import RouteSeo from './components/RouteSeo';
 import Home from './pages/Home';
@@ -84,7 +83,6 @@ function CustomerLayout({ children }: { children: ReactNode }) {
       <Header />
       <main className="customer-main">{children}</main>
       <FloatingCart />
-      <FloatingWhatsAppButton />
       <Footer />
       <BottomNav />
     </CustomerAccessGate>

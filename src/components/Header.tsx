@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, LogOut, Package, ChevronDown, Phone, ShoppingBag } from 'lucide-react';
+import { User, LogOut, Package, ChevronDown, ShoppingBag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { dropdownVariants } from '../lib/animations';
-import { storePhoneDisplay, storePhoneHref } from '../lib/storeInfo';
 
 const navItems = [
   { to: '/', label: 'Home' },
@@ -99,22 +98,24 @@ export default function Header() {
           </div>
 
           <div className="flex flex-shrink-0 items-center gap-2">
-            <a
-              href={storePhoneHref}
-              className="inline-flex items-center gap-1.5 rounded-[16px] border border-brand-gold/25 bg-brand-gold/10 px-2.5 py-2 text-[11px] font-bold text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-all hover:border-brand-gold/45 hover:text-brand-gold-soft sm:hidden"
-              aria-label={`Call ${storePhoneDisplay}`}
-            >
-              <Phone size={14} strokeWidth={2.4} />
-              <span>{storePhoneDisplay}</span>
-            </a>
-
-            <a
-              href={storePhoneHref}
-              className="hidden h-11 w-11 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.04] text-brand-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/25 hover:text-brand-gold sm:inline-flex"
-              aria-label={`Call ${storePhoneDisplay}`}
-            >
-              <Phone size={17} strokeWidth={2.4} />
-            </a>
+            {user ? (
+              <Link
+                to="/profile"
+                className="inline-flex items-center gap-1.5 rounded-[16px] border border-brand-gold/35 bg-brand-gold/10 px-3 py-2 text-[11px] font-bold text-brand-gold shadow-[0_12px_28px_rgba(216,178,78,0.08),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/55 hover:bg-brand-gold/15 hover:text-brand-gold-soft sm:hidden"
+              >
+                <User size={14} strokeWidth={2.4} />
+                <span>Profile</span>
+              </Link>
+            ) : (
+              <Link
+                to="/auth"
+                state={{ from: location.pathname }}
+                className="inline-flex items-center gap-1.5 rounded-[16px] border border-brand-gold/35 bg-brand-gold/10 px-3 py-2 text-[11px] font-bold text-brand-gold shadow-[0_12px_28px_rgba(216,178,78,0.08),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/55 hover:bg-brand-gold/15 hover:text-brand-gold-soft sm:hidden"
+              >
+                <User size={14} strokeWidth={2.4} />
+                <span>Sign In</span>
+              </Link>
+            )}
 
             {showHeaderCart && (
               <Link
