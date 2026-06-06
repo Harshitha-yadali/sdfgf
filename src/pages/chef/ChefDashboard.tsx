@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ChefHat, LogOut, Clock, Check, Flame, Package, Users, Timer,
   Store, Truck, Volume2, VolumeX, Bell, Zap, Wallet, BadgeCheck, Copy,
-  Plus,
+  Plus, PlusCircle,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getCompletedOrderLabel, getPendingPaymentLabel, getReadyOrderLabel, getServiceModeLabel, isAwaitingCounterPayment, isAwaitingOnlinePayment, isDineInOrder } from '../../lib/orderLabels';
@@ -12,6 +12,7 @@ import { markOrderReady } from '../../lib/markOrderReady';
 import { playNewOrderAlert, playAcceptSound, playOrderCompleteSound } from '../../lib/sounds';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../contexts/AuthContext';
+import ChefNewOrder from './ChefNewOrder';
 import type { Category, CounterPaymentMethod, MenuItem, Order } from '../../types';
 
 interface OrderItemRow {
@@ -24,7 +25,7 @@ interface OrderItemRow {
   customizations: { group_name: string; option_name: string; price: number }[] | null;
 }
 
-type Tab = 'payments' | 'queue' | 'preparing' | 'pendingPayment' | 'done';
+type Tab = 'payments' | 'queue' | 'preparing' | 'pendingPayment' | 'done' | 'newOrder';
 type PaymentCategory = 'all' | 'before' | 'after';
 type PaymentDraft = {
   method: CounterPaymentMethod;
@@ -557,10 +558,10 @@ export default function ChefDashboard() {
   const settledDoneOrders = todayDone.filter((o) => !(o.status === 'delivered' && isAwaitingCounterPayment(o)));
 
   const tabs: { key: Tab; label: string; count: number; icon: typeof Clock }[] = [
-    { key: 'payments', label: 'Payments', count: activePaymentOrders.length, icon: Wallet },
+    { key: 'payments', label: 'Pay', count: activePaymentOrders.length, icon: Wallet },
     { key: 'queue', label: 'Queue', count: queueOrders.length, icon: Users },
-    { key: 'preparing', label: 'Preparing', count: preparingOrders.length, icon: Flame },
-    { key: 'pendingPayment', label: 'Pending Pay', count: pendingPaymentOrders.length, icon: Wallet },
+    { key: 'preparing', label: 'Making', count: preparingOrders.length, icon: Flame },
+    { key: 'pendingPayment', label: 'Due', count: pendingPaymentOrders.length, icon: Wallet },
     { key: 'done', label: 'Done', count: settledDoneOrders.length, icon: Check },
   ];
 
@@ -598,7 +599,7 @@ export default function ChefDashboard() {
       <header className={`sticky top-0 z-50 border-b border-brand-border px-4 py-3 transition-colors duration-300 ${
         newOrderFlash ? 'bg-orange-500/20' : 'bg-brand-surface'
       }`}>
-        <div className="flex items-center justify-between max-w-2xl mx-auto">
+        <div className="flex items-center justify-between max-w-5xl mx-auto">
           <div className="flex items-center gap-2.5">
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
               newOrderFlash
@@ -613,6 +614,17 @@ export default function ChefDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTab('newOrder')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-bold transition-all ${
+                tab === 'newOrder'
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
+              }`}
+            >
+              <PlusCircle size={16} />
+              <span className="hidden sm:inline">New Order</span>
+            </button>
             <button
               onClick={() => setSoundEnabled(!soundEnabled)}
               className={`p-2 rounded-lg transition-colors ${
@@ -631,73 +643,87 @@ export default function ChefDashboard() {
         </div>
       </header>
 
-      <div className="sticky top-[57px] z-40 bg-brand-bg/95 backdrop-blur-sm border-b border-brand-border">
-        <div className="max-w-2xl mx-auto px-4 py-2">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-2">
-            <StatCard label="Pay" value={activePaymentOrders.length} color="rose" />
-            <StatCard label="Queue" value={queueOrders.length} color="orange" />
-            <StatCard label="Making" value={preparingOrders.length} color="amber" />
-            <StatCard label="Ready" value={doneOrders.filter(o => o.status === 'packed').length} color="emerald" />
-            <StatCard label="Done" value={settledDoneOrders.filter(o => o.status === 'delivered').length} color="blue" />
-          </div>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-bold transition-all ${
-                  tab === t.key
-                    ? t.key === 'payments' || t.key === 'pendingPayment'
-                      ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
-                      : t.key === 'queue'
-                      ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
-                      : t.key === 'preparing'
-                      ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
-                      : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
-                    : 'bg-brand-surface text-brand-text-dim border border-brand-border'
-                }`}
-              >
-                <t.icon size={15} />
-                {t.label}
-                {t.count > 0 && (
-                  <span className={`min-w-[20px] h-5 flex items-center justify-center rounded-full text-[11px] font-black px-1.5 ${
-                    tab === t.key ? 'bg-brand-surface-strong/80' : 'bg-brand-surface-light'
-                  }`}>
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+      {tab === 'newOrder' ? (
+        <div className="max-w-5xl mx-auto flex flex-col" style={{ minHeight: 'calc(100vh - 57px)' }}>
+          <ChefNewOrder
+            onClose={() => setTab('queue')}
+            onOrderCreated={(orderId) => {
+              showToast(`Order ${orderId} created — now in queue`);
+              setTab('queue');
+              void loadOrders();
+            }}
+          />
         </div>
-      </div>
-
-      <main className="max-w-2xl mx-auto px-4 py-4 pb-20 space-y-3">
-        {tab === 'payments' && activePaymentOrders.length > 0 && (
-          <div className="grid grid-cols-3 gap-2">
-            {paymentCategoryOptions.map((category) => (
-              <button
-                key={category.key}
-                onClick={() => setPaymentCategory(category.key)}
-                className={`rounded-xl border px-2 py-2 text-[12px] font-bold transition-colors ${
-                  paymentCategory === category.key
-                    ? 'border-rose-400 bg-rose-500 text-white'
-                    : 'border-brand-border bg-brand-surface text-brand-text-muted hover:border-rose-400/40'
-                }`}
-              >
-                <span className="block leading-tight">{category.label}</span>
-                <span className={`mt-1 inline-flex min-w-[22px] justify-center rounded-full px-1.5 py-0.5 text-[11px] ${
-                  paymentCategory === category.key ? 'bg-brand-surface-strong/80' : 'bg-brand-surface-light'
-                }`}>
-                  {category.count}
-                </span>
-              </button>
-            ))}
+      ) : (
+        <>
+          <div className="sticky top-[57px] z-40 bg-brand-bg/95 backdrop-blur-sm border-b border-brand-border">
+            <div className="max-w-5xl mx-auto px-4 py-2">
+              <div className="grid grid-cols-5 gap-2 mb-2">
+                <StatCard label="Pay" value={activePaymentOrders.length} color="rose" />
+                <StatCard label="Queue" value={queueOrders.length} color="orange" />
+                <StatCard label="Making" value={preparingOrders.length} color="amber" />
+                <StatCard label="Ready" value={doneOrders.filter(o => o.status === 'packed').length} color="emerald" />
+                <StatCard label="Done" value={settledDoneOrders.filter(o => o.status === 'delivered').length} color="blue" />
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {tabs.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-bold transition-all ${
+                      tab === t.key
+                        ? t.key === 'payments' || t.key === 'pendingPayment'
+                          ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
+                          : t.key === 'queue'
+                          ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
+                          : t.key === 'preparing'
+                          ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+                          : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                        : 'bg-brand-surface text-brand-text-dim border border-brand-border'
+                    }`}
+                  >
+                    <t.icon size={14} />
+                    <span className="hidden sm:inline">{t.label}</span>
+                    <span className="sm:hidden">{t.label.slice(0, 4)}</span>
+                    {t.count > 0 && (
+                      <span className={`min-w-[18px] h-4 flex items-center justify-center rounded-full text-[10px] font-black px-1 ${
+                        tab === t.key ? 'bg-black/20' : 'bg-brand-surface-light'
+                      }`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        )}
 
-        {displayOrders.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
+          <main className="max-w-5xl mx-auto px-4 py-4 pb-20 space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 lg:items-start">
+            {tab === 'payments' && activePaymentOrders.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 lg:col-span-2">
+                {paymentCategoryOptions.map((category) => (
+                  <button
+                    key={category.key}
+                    onClick={() => setPaymentCategory(category.key)}
+                    className={`rounded-xl border px-2 py-2 text-[12px] font-bold transition-colors ${
+                      paymentCategory === category.key
+                        ? 'border-rose-400 bg-rose-500 text-white'
+                        : 'border-brand-border bg-brand-surface text-brand-text-muted hover:border-rose-400/40'
+                    }`}
+                  >
+                    <span className="block leading-tight">{category.label}</span>
+                    <span className={`mt-1 inline-flex min-w-[22px] justify-center rounded-full px-1.5 py-0.5 text-[11px] ${
+                      paymentCategory === category.key ? 'bg-black/20' : 'bg-brand-surface-light'
+                    }`}>
+                      {category.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {displayOrders.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 text-center lg:col-span-2">
             <div className="w-16 h-16 bg-brand-surface rounded-2xl flex items-center justify-center mb-4">
               {tab === 'payments' || tab === 'pendingPayment' ? <Wallet size={28} className="text-brand-text-dim" /> :
                tab === 'queue' ? <Users size={28} className="text-brand-text-dim" /> :
@@ -728,10 +754,10 @@ export default function ChefDashboard() {
                 New orders will appear here with a sound alert
               </p>
             )}
-          </div>
-        )}
+            </div>
+            )}
 
-        {displayOrders.map((order, idx) => {
+            {displayOrders.map((order, idx) => {
           const items = orderItemsMap[order.id] || [];
           const isPaymentPending = isAwaitingCounterPayment(order);
           const isQueue = order.status === 'pending' && !isPaymentPending;
@@ -1268,7 +1294,7 @@ export default function ChefDashboard() {
         })}
       </main>
 
-      {activePaymentOrders.length > 0 && tab !== 'payments' && (
+      {activePaymentOrders.length > 0 && tab !== 'payments' && tab !== 'newOrder' && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 animate-slide-up">
           <button
             onClick={() => setTab('payments')}
@@ -1280,7 +1306,7 @@ export default function ChefDashboard() {
         </div>
       )}
 
-      {queueOrders.length > 0 && tab !== 'queue' && (
+      {queueOrders.length > 0 && tab !== 'queue' && tab !== 'newOrder' && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 animate-slide-up">
           <button
             onClick={() => setTab('queue')}
@@ -1290,6 +1316,8 @@ export default function ChefDashboard() {
             {queueOrders.length} order{queueOrders.length !== 1 ? 's' : ''} waiting
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   );
