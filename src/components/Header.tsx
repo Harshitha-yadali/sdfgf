@@ -56,13 +56,13 @@ export default function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 px-2 pt-2.5 sm:px-0 sm:pt-3">
+    <header className="sticky top-0 z-50 px-3 pt-2.5 sm:px-0 sm:pt-3">
       <div className="mx-auto w-full max-w-7xl px-0 sm:px-6 lg:px-8">
-        <div className="gloss-shell glow-border flex h-[56px] w-full items-center justify-between rounded-[22px] px-2.5 sm:h-[60px] sm:px-5 lg:h-[72px]">
+        <div className="gloss-shell glow-border flex h-[54px] w-full items-center justify-between rounded-2xl px-3 sm:h-[60px] sm:rounded-[22px] sm:px-5 lg:h-[72px]">
           <div className="flex min-w-0 items-center gap-3 lg:gap-6">
             <Link
               to="/"
-              className="flex flex-shrink-0 items-center rounded-[16px] border border-white/10 bg-black/10 px-2 py-1.5 backdrop-blur-xl transition-transform duration-300 hover:scale-[1.02] sm:rounded-[18px] sm:px-3 sm:py-2"
+              className="flex flex-shrink-0 items-center transition-transform duration-300 hover:scale-[1.02]"
               aria-label="The Supreme Waffle home"
             >
               <img
@@ -72,7 +72,7 @@ export default function Header() {
                 fetchPriority="high"
                 width={240}
                 height={96}
-                className="h-8 w-auto max-w-[120px] object-contain drop-shadow-[0_0_12px_rgba(255,215,0,0.15)] sm:h-12 sm:max-w-none lg:h-14"
+                className="h-9 w-auto max-w-[130px] object-contain drop-shadow-[0_0_14px_rgba(216,178,78,0.22)] sm:h-11 sm:max-w-none lg:h-14"
               />
             </Link>
 
@@ -101,18 +101,20 @@ export default function Header() {
             {user ? (
               <Link
                 to="/profile"
-                className="inline-flex items-center gap-1.5 rounded-[16px] border border-brand-gold/35 bg-brand-gold/10 px-3 py-2 text-[11px] font-bold text-brand-gold shadow-[0_12px_28px_rgba(216,178,78,0.08),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/55 hover:bg-brand-gold/15 hover:text-brand-gold-soft sm:hidden"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-gold/40 bg-brand-gold/12 px-3 py-2 text-[12px] font-bold text-brand-gold transition-all active:scale-95 sm:hidden"
+                style={{ background: 'rgba(216,178,78,0.12)' }}
               >
-                <User size={14} strokeWidth={2.4} />
+                <User size={14} strokeWidth={2.5} />
                 <span>Profile</span>
               </Link>
             ) : (
               <Link
                 to="/auth"
                 state={{ from: location.pathname }}
-                className="inline-flex items-center gap-1.5 rounded-[16px] border border-brand-gold/35 bg-brand-gold/10 px-3 py-2 text-[11px] font-bold text-brand-gold shadow-[0_12px_28px_rgba(216,178,78,0.08),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:-translate-y-0.5 hover:border-brand-gold/55 hover:bg-brand-gold/15 hover:text-brand-gold-soft sm:hidden"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-brand-gold/40 px-3 py-2 text-[12px] font-bold text-brand-gold transition-all active:scale-95 sm:hidden"
+                style={{ background: 'rgba(216,178,78,0.12)' }}
               >
-                <User size={14} strokeWidth={2.4} />
+                <User size={14} strokeWidth={2.5} />
                 <span>Sign In</span>
               </Link>
             )}
