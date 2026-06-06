@@ -678,7 +678,7 @@ function MenuBestSellerRail({
           className="flex gap-3 overflow-x-auto scrollbar-hide px-4 snap-x snap-mandatory"
         >
           {items.map((item) => (
-            <div key={item.id} className="w-[44vw] min-w-[176px] sm:w-48 lg:w-52 flex-shrink-0 snap-start">
+            <div key={item.id} className="flex-shrink-0 snap-start" style={{ width: 'clamp(108px, 32vw, 156px)' }}>
               <ProductCard item={item} onImageClick={onImageClick} onAdd={onAdd} />
             </div>
           ))}
