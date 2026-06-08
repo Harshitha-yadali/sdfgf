@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, Tag, User, Pencil, Store, Wallet, CreditCard, Gift, Mail, Phone } from 'lucide-react';
+import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, Tag, User, Pencil, Store, Wallet, CreditCard, Gift, Mail, Phone, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,7 +37,7 @@ import LocationPicker from '../components/LocationPicker';
 
 const SESSION_KEYWORDS = ['session expired', 'sign in again', 'please sign in'];
 const TAKEAWAY_CHARGE = 10;
-const DELIVERY_CHECKOUT_ENABLED = false;
+const DELIVERY_CHECKOUT_ENABLED = true;
 const AI_SUGGESTION_DEBOUNCE_MS = 350;
 const WATER_ITEM_KEYWORDS = ['water bottle', 'water bottles', 'mineral water', 'bottled water', 'bisleri', 'aquafina', 'kinley'];
 const WATER_CATEGORY_KEYWORDS = ['water bottle', 'water bottles', 'mineral water', 'bottled water'];
@@ -221,14 +221,7 @@ export default function CartPage() {
   const pendingSuccessOrderId = readCheckoutSuccessOrder();
   const pendingOnlineOrderId = readPendingOnlineOrder();
   const activeCheckoutOrderId = pendingSuccessOrderId || pendingOnlineOrderId;
-  const activeOrderType: CheckoutOrderType = DELIVERY_CHECKOUT_ENABLED ? orderType : 'pickup';
-
-  useEffect(() => {
-    if (!DELIVERY_CHECKOUT_ENABLED && orderType === 'delivery') {
-      setOrderType('pickup');
-      setPickupOption('dine_in');
-    }
-  }, [orderType]);
+  const activeOrderType: CheckoutOrderType = orderType;
 
   useEffect(() => {
     if (profile) {
@@ -948,13 +941,10 @@ export default function CartPage() {
       return;
     }
 
-    if (!DELIVERY_CHECKOUT_ENABLED && nextOrderType === 'delivery') {
-      setOrderType('pickup');
-      setPickupOption('dine_in');
-      return;
-    }
-
     setOrderType(nextOrderType);
+    if (nextOrderType === 'delivery') {
+      setPaymentMethod('card');
+    }
   }
 
   function handleCustomerContinue() {
@@ -1646,6 +1636,84 @@ export default function CartPage() {
           )}
         </div>
 
+        {/* Order type selector */}
+        <div className="bg-brand-surface rounded-xl border border-brand-border mb-4 overflow-hidden">
+          <div className="px-4 pt-4 pb-3">
+            <p className="text-[12px] font-black uppercase tracking-[0.18em] text-brand-text-dim mb-3">How would you like it?</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { type: 'pickup' as CheckoutOrderType, pickup: 'dine_in' as PickupOption, icon: Store, label: 'Dine In' },
+                { type: 'pickup' as CheckoutOrderType, pickup: 'takeaway' as PickupOption, icon: ShoppingBag, label: 'Takeaway' },
+                { type: 'delivery' as CheckoutOrderType, pickup: 'takeaway' as PickupOption, icon: MapPin, label: 'Delivery' },
+              ] as const).map(({ type, pickup, icon: Icon, label }) => {
+                const isActive =
+                  type === 'delivery'
+                    ? activeOrderType === 'delivery'
+                    : activeOrderType !== 'delivery' && pickupOption === pickup;
+                return (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      if (type === 'delivery') {
+                        handleOrderTypeChoice('delivery');
+                      } else {
+                        handleOrderTypeChoice('pickup');
+                        handlePickupChoice(pickup);
+                      }
+                    }}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 transition-all ${
+                      isActive
+                        ? 'border-brand-gold bg-brand-gold/10'
+                        : 'border-brand-border hover:border-brand-gold/40'
+                    }`}
+                  >
+                    <Icon size={18} className={isActive ? 'text-brand-gold' : 'text-brand-text-dim'} strokeWidth={2} />
+                    <span className={`text-[11px] font-bold ${isActive ? 'text-white' : 'text-brand-text-muted'}`}>{label}</span>
+                    {type === 'pickup' && pickup === 'takeaway' && (
+                      <span className="text-[9px] text-brand-text-dim">+₹{TAKEAWAY_CHARGE}</span>
+                    )}
+                    {type === 'delivery' && (
+                      <span className="text-[9px] text-brand-text-dim">Online only</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {activeOrderType === 'delivery' && (
+            <div className="px-4 pb-4 border-t border-brand-border pt-3 space-y-3">
+              <p className="text-[12px] font-bold text-white">Delivery address</p>
+              <LocationPicker
+                address={deliveryAddress}
+                pincode={deliveryPincode}
+                onAddressChange={setDeliveryAddress}
+                onPincodeChange={setDeliveryPincode}
+              />
+              {deliveryLookupLoading && (
+                <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-2.5 text-[12px] font-semibold text-sky-400">
+                  Checking delivery availability...
+                </div>
+              )}
+              {!deliveryLookupLoading && deliveryZone && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5">
+                  <p className="text-[13px] font-bold text-emerald-400">{deliveryZone.area_name}</p>
+                  <p className="text-[11px] text-emerald-300 mt-0.5">
+                    Delivery fee ₹{deliveryFee.toFixed(0)}
+                    {deliveryEstimatedTime > 0 ? ` · ETA ~${deliveryEstimatedTime} min` : ''}
+                    {` · Min order ₹${deliveryMinimumOrder.toFixed(0)}`}
+                  </p>
+                </div>
+              )}
+              {!deliveryLookupLoading && !deliveryZone && deliveryLookupError && deliveryPincode.trim().length === 6 && (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-[12px] font-semibold text-red-300">
+                  {deliveryLookupError}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="bg-brand-surface rounded-xl p-4 border border-brand-border mb-6">
           <div className="space-y-2 text-[14px]">
             <div className="flex justify-between text-brand-text-muted">
@@ -1939,20 +2007,20 @@ function CheckoutFlowModal({
                 <span className="font-black text-brand-gold">{isDelivery ? 'Delivery' : pickupOption === 'takeaway' ? 'Takeaway' : 'Dine In'}</span>
               </div>
               <p className="mt-1 text-[11px] font-medium text-brand-text-dim">{orderTypeSummary}</p>
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="mt-3 grid grid-cols-3 gap-2">
                 <button
                   onClick={() => {
                     onSelectOrderType('pickup');
                     onSelectPickupOption('dine_in');
                   }}
                   disabled={submitting}
-                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                     !isDelivery && pickupOption === 'dine_in'
                       ? 'border-brand-gold bg-brand-gold/10 text-white'
                       : 'border-brand-border text-brand-text-muted hover:border-brand-gold/40 hover:text-white'
                   }`}
                 >
-                  <Store size={15} className={!isDelivery && pickupOption === 'dine_in' ? 'text-brand-gold' : 'text-brand-text-dim'} />
+                  <Store size={13} className={!isDelivery && pickupOption === 'dine_in' ? 'text-brand-gold' : 'text-brand-text-dim'} />
                   Dine In
                 </button>
                 <button
@@ -1961,14 +2029,26 @@ function CheckoutFlowModal({
                     onSelectPickupOption('takeaway');
                   }}
                   disabled={submitting}
-                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                     !isDelivery && pickupOption === 'takeaway'
                       ? 'border-brand-gold bg-brand-gold/10 text-white'
                       : 'border-brand-border text-brand-text-muted hover:border-brand-gold/40 hover:text-white'
                   }`}
                 >
-                  <ShoppingBag size={15} className={!isDelivery && pickupOption === 'takeaway' ? 'text-brand-gold' : 'text-brand-text-dim'} />
+                  <ShoppingBag size={13} className={!isDelivery && pickupOption === 'takeaway' ? 'text-brand-gold' : 'text-brand-text-dim'} />
                   Takeaway
+                </button>
+                <button
+                  onClick={() => onSelectOrderType('delivery')}
+                  disabled={submitting}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                    isDelivery
+                      ? 'border-brand-gold bg-brand-gold/10 text-white'
+                      : 'border-brand-border text-brand-text-muted hover:border-brand-gold/40 hover:text-white'
+                  }`}
+                >
+                  <MapPin size={13} className={isDelivery ? 'text-brand-gold' : 'text-brand-text-dim'} />
+                  Delivery
                 </button>
               </div>
             </div>
@@ -2167,6 +2247,23 @@ function CheckoutFlowModal({
               >
                 Place Free Order
               </button>
+            ) : isDelivery ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 rounded-xl border border-brand-gold/30 bg-brand-gold/8 px-4 py-3" style={{ background: 'rgba(216,178,78,0.07)' }}>
+                  <CreditCard size={18} className="text-brand-gold flex-shrink-0" />
+                  <div>
+                    <p className="text-[13px] font-bold text-white">Online payment only</p>
+                    <p className="text-[11px] text-brand-text-dim">Delivery orders require payment via UPI, card, or net banking.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={onContinuePayment}
+                  disabled={submitting}
+                  className="btn-primary w-full rounded-xl py-3 text-[14px] font-black disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Proceed to Online Payment
+                </button>
+              </div>
             ) : (
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <button
@@ -2211,7 +2308,7 @@ function CheckoutFlowModal({
                 </button>
               </div>
             )}
-            {!isFreeOrder && (
+            {!isFreeOrder && !isDelivery && (
               <button
                 onClick={onContinuePayment}
                 disabled={submitting}
