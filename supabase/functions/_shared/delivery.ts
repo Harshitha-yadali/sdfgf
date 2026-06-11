@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 
 export const TAKEAWAY_FEE = 10;
+export const FREE_DELIVERY_THRESHOLD = 299;
+
+const RESTAURANT_LAT = 16.4724;
+const RESTAURANT_LNG = 80.6516;
 
 export type CheckoutOrderType = "pickup" | "delivery";
 export type CheckoutPickupOption = "dine_in" | "takeaway";
@@ -18,6 +22,8 @@ interface ResolveCheckoutFulfillmentInput {
   address: string;
   pincode: string;
   deliveryFee: number;
+  deliveryLat?: number | null;
+  deliveryLng?: number | null;
   subtotal: number;
 }
 
@@ -35,8 +41,25 @@ function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function formatCurrency(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function computeExpectedDeliveryFee(subtotal: number, lat: number | null | undefined, lng: number | null | undefined): number {
+  if (subtotal >= FREE_DELIVERY_THRESHOLD) return 0;
+  if (lat == null || lng == null) return 30;
+  const km = haversineKm(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+  if (km <= 3) return 30;
+  if (km <= 7) return 50;
+  return 70;
 }
 
 export async function resolveCheckoutFulfillment(
@@ -81,16 +104,14 @@ export async function resolveCheckoutFulfillment(
     ? (data as DeliveryZoneRow)
     : { area_name: "Your Area", delivery_fee: 0, min_order: 0, estimated_time: 0 };
 
-  const expectedDeliveryFee = roundCurrency(Number(zone.delivery_fee ?? 0));
-  const minimumOrder = roundCurrency(Number(zone.min_order ?? 0));
+  const subtotal = roundCurrency(Number(input.subtotal ?? 0));
+  const expectedDeliveryFee = roundCurrency(
+    computeExpectedDeliveryFee(subtotal, input.deliveryLat, input.deliveryLng),
+  );
   const submittedDeliveryFee = roundCurrency(Number(input.deliveryFee ?? 0));
 
   if (Math.abs(submittedDeliveryFee - expectedDeliveryFee) > 0.01) {
     throw new Error("Delivery fee mismatch");
-  }
-
-  if (roundCurrency(Number(input.subtotal ?? 0)) < minimumOrder) {
-    throw new Error(`Minimum order for ${zone.area_name || "this area"} is ₹${formatCurrency(minimumOrder)}`);
   }
 
   return {

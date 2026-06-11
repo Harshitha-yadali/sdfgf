@@ -38,6 +38,27 @@ import LocationPicker from '../components/LocationPicker';
 const SESSION_KEYWORDS = ['session expired', 'sign in again', 'please sign in'];
 const TAKEAWAY_CHARGE = 10;
 const DELIVERY_CHECKOUT_ENABLED = true;
+const FREE_DELIVERY_THRESHOLD = 299;
+const RESTAURANT_LAT = 16.4724;
+const RESTAURANT_LNG = 80.6516;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getDistanceBasedDeliveryFee(lat: number | null, lng: number | null): number {
+  if (lat === null || lng === null) return 30;
+  const km = haversineKm(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+  if (km <= 3) return 30;
+  if (km <= 7) return 50;
+  return 70;
+}
 const AI_SUGGESTION_DEBOUNCE_MS = 350;
 const WATER_ITEM_KEYWORDS = ['water bottle', 'water bottles', 'mineral water', 'bottled water', 'bisleri', 'aquafina', 'kinley'];
 const WATER_CATEGORY_KEYWORDS = ['water bottle', 'water bottles', 'mineral water', 'bottled water'];
@@ -471,7 +492,9 @@ export default function CartPage() {
   ];
   const featuredAutomaticOffer = selectedAutomaticOffer?.offer || applicableAutomaticOffers[0]?.offer || activeOffers.find((offer) => getOfferMode(offer) === 'automatic') || null;
   const discount = Math.min(subtotal, couponDiscount + automaticDiscount + reviewRewardDiscount);
-  const deliveryFee = activeOrderType === 'delivery' ? Number(deliveryZone?.delivery_fee || 0) : 0;
+  const deliveryFee = activeOrderType === 'delivery'
+    ? (subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : getDistanceBasedDeliveryFee(deliveryLat, deliveryLng))
+    : 0;
   const deliveryMinimumOrder = Number(deliveryZone?.min_order || 0);
   const deliveryEstimatedTime = Number(deliveryZone?.estimated_time || 0);
 
@@ -965,6 +988,12 @@ export default function CartPage() {
       return;
     }
 
+    if (activeOrderType === 'delivery') {
+      setCheckoutStep(null);
+      void submitCheckout(activeOrderType, pickupOption, 'card');
+      return;
+    }
+
     setCheckoutStep('payment');
   }
 
@@ -999,7 +1028,9 @@ export default function CartPage() {
     try {
       const checkoutAddress = checkoutOrderType === 'delivery' ? deliveryAddress.trim() : '';
       const checkoutPincode = checkoutOrderType === 'delivery' ? deliveryPincode.trim() : '';
-      const checkoutDeliveryFee = checkoutOrderType === 'delivery' ? Number(deliveryZone?.delivery_fee || 0) : 0;
+      const checkoutDeliveryFee = checkoutOrderType === 'delivery'
+        ? (subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : getDistanceBasedDeliveryFee(checkoutDeliveryLat, checkoutDeliveryLng))
+        : 0;
       const checkoutDeliveryLat = checkoutOrderType === 'delivery' ? deliveryLat : null;
       const checkoutDeliveryLng = checkoutOrderType === 'delivery' ? deliveryLng : null;
       const checkoutTotal = getTotalForCheckoutMode(checkoutOrderType, checkoutPickupOption);
@@ -1720,9 +1751,11 @@ export default function CartPage() {
                 <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5">
                   <p className="text-[13px] font-bold text-emerald-400">{deliveryZone.area_name}</p>
                   <p className="text-[11px] text-emerald-300 mt-0.5">
-                    Delivery fee ₹{deliveryFee.toFixed(0)}
+                    {deliveryFee === 0
+                      ? 'Free delivery'
+                      : `Delivery fee ₹${deliveryFee.toFixed(0)}`}
                     {deliveryEstimatedTime > 0 ? ` · ETA ~${deliveryEstimatedTime} min` : ''}
-                    {` · Min order ₹${deliveryMinimumOrder.toFixed(0)}`}
+                    {` · Free delivery above ₹${FREE_DELIVERY_THRESHOLD}`}
                   </p>
                 </div>
               )}

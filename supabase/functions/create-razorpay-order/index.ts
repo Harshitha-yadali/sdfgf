@@ -353,6 +353,8 @@ Deno.serve(async (req: Request) => {
       address,
       pincode,
       deliveryFee,
+      deliveryLat,
+      deliveryLng,
       subtotal,
     });
 
