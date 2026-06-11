@@ -139,6 +139,3 @@ export default function DeliveryLogin() {
     </div>
   );
 }
-
-
-export default DeliveryLogin
