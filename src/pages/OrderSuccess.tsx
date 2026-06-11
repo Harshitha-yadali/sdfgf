@@ -318,6 +318,11 @@ export default function OrderSuccessPage() {
 
       if (pollCountRef.current >= 5) {
         setPaymentCheckDelayed(true);
+        // Immediately trigger reconciliation after the fast-poll window closes
+        // instead of waiting for the user to tap "Check again".
+        // This is the critical path for UPI users who pay and close their UPI app.
+        reconciledPendingOrderRef.current = null;
+        setOrder((prev) => prev ? { ...prev } : prev);
         return;
       }
 
@@ -738,17 +743,19 @@ export default function OrderSuccessPage() {
               transition={{ type: 'spring', stiffness: 300, damping: 20 }}
               className="w-20 h-20 bg-sky-500/10 border border-sky-500/20 rounded-full flex items-center justify-center mx-auto mb-6"
             >
-              <Clock size={40} className={reconcilingPayment ? 'text-sky-400 animate-spin' : 'text-sky-400'} />
+              <Clock size={40} className={reconcilingPayment ? 'text-sky-400 animate-spin' : 'text-sky-400 animate-pulse'} />
             </motion.div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white mb-2">Confirming Your Order</h1>
-            <p className="text-brand-text-muted mb-6">
+            <h1 className="text-2xl font-extrabold tracking-tight text-white mb-2">
+              {reconcilingPayment ? 'Verifying your payment...' : 'Waiting for Payment'}
+            </h1>
+            <p className="text-brand-text-muted mb-4">
               {reconcilingPayment
                 ? 'Checking with Razorpay — this usually takes a few seconds.'
                 : paymentCheckDelayed
-                  ? 'Confirmation is taking longer than usual. Your payment is safe.'
-                  : 'Payment received. Your order will update automatically.'}
+                  ? 'If you already paid via UPI (PhonePe, GPay, etc.) and closed the app, your payment is safe. We are confirming it now.'
+                  : 'If you paid via UPI and closed the app, stay on this page — we will confirm your payment automatically.'}
             </p>
-            {paymentCheckDelayed && (
+            {paymentCheckDelayed && !reconcilingPayment && (
               <button
                 onClick={() => { void handleCheckPaymentAgain(); }}
                 className="btn-primary mb-8"
