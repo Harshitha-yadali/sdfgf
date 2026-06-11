@@ -77,11 +77,10 @@ export async function resolveCheckoutFulfillment(
     throw error;
   }
 
-  if (!data) {
-    throw new Error("Delivery is not available for this pincode yet");
-  }
+  const zone: DeliveryZoneRow = data
+    ? (data as DeliveryZoneRow)
+    : { area_name: "Your Area", delivery_fee: 0, min_order: 0, estimated_time: 0 };
 
-  const zone = data as DeliveryZoneRow;
   const expectedDeliveryFee = roundCurrency(Number(zone.delivery_fee ?? 0));
   const minimumOrder = roundCurrency(Number(zone.min_order ?? 0));
   const submittedDeliveryFee = roundCurrency(Number(input.deliveryFee ?? 0));
