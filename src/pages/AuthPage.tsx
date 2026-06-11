@@ -30,6 +30,8 @@ export default function AuthPage() {
         navigate('/chef', { replace: true });
       } else if (profile.role === 'admin') {
         navigate('/admin', { replace: true });
+      } else if (profile.role === 'delivery') {
+        navigate('/delivery', { replace: true });
       } else {
         navigate(from, { replace: true });
       }
@@ -53,13 +55,18 @@ export default function AuthPage() {
     return emailInput.trim().toLowerCase();
   }
 
-  const isStaffEmail = normalizedEmail() === 'admin@gmail.com' || normalizedEmail() === 'chef@gmail.com';
+  const isStaffEmail = normalizedEmail() === 'admin@gmail.com' || normalizedEmail() === 'chef@gmail.com' || normalizedEmail() === 'delivery@gmail.com';
 
   async function handleSendOtp(e?: React.FormEvent) {
     e?.preventDefault();
     const email = normalizedEmail();
     if (!email || !email.includes('@')) {
       showToast('Please enter a valid Gmail address', 'error');
+      return;
+    }
+
+    if (email === 'delivery@gmail.com') {
+      navigate('/delivery/login', { replace: true });
       return;
     }
 
