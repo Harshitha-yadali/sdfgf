@@ -34,6 +34,8 @@ import AdminMessages from './pages/admin/AdminMessages';
 import AdminWebsite from './pages/admin/AdminWebsite';
 import ChefLogin from './pages/chef/ChefLogin';
 import ChefDashboard from './pages/chef/ChefDashboard';
+import DeliveryLogin from './pages/delivery/DeliveryLogin';
+import DeliveryDashboard from './pages/delivery/DeliveryDashboard';
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useSiteSettings } from './hooks/useSiteSettings';
 import { readPendingOnlineOrder, clearPendingOnlineOrder } from './lib/pendingOnlineOrder';
@@ -109,6 +111,13 @@ function ChefRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function DeliveryRoute({ children }: { children: ReactNode }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return <LoadingSpinner />;
+  if (!user || !profile || (profile.role !== 'delivery' && profile.role !== 'admin')) return <Navigate to="/delivery/login" replace />;
+  return <>{children}</>;
+}
+
 function CustomerAccessGate({ children }: { children: ReactNode }) {
   const { settings, loading } = useSiteSettings();
 
@@ -126,6 +135,7 @@ function CustomerLayout({ children }: { children: ReactNode }) {
   if (!loading && profile) {
     if (profile.role === 'chef') return <Navigate to="/chef" replace />;
     if (profile.role === 'admin') return <Navigate to="/admin" replace />;
+    if (profile.role === 'delivery') return <Navigate to="/delivery" replace />;
   }
 
   return (
@@ -184,6 +194,8 @@ export default function App() {
               <Routes>
                 <Route path="/chef/login" element={<ChefLogin />} />
                 <Route path="/chef" element={<ChefRoute><ChefDashboard /></ChefRoute>} />
+                <Route path="/delivery/login" element={<DeliveryLogin />} />
+                <Route path="/delivery" element={<DeliveryRoute><DeliveryDashboard /></DeliveryRoute>} />
                 <Route path="/admin/login" element={<AdminLogin />} />
                 <Route
                   path="/admin/*"

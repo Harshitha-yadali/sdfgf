@@ -10,7 +10,7 @@ export interface Profile {
   email: string;
   default_address: string;
   default_pincode: string;
-  role: 'customer' | 'chef' | 'admin';
+  role: 'customer' | 'chef' | 'admin' | 'delivery';
 }
 
 const staffRoleMap = {
@@ -19,6 +19,9 @@ const staffRoleMap = {
   },
   'chef@gmail.com': {
     role: 'chef' as const,
+  },
+  'delivery@gmail.com': {
+    role: 'delivery' as const,
   },
 };
 
@@ -31,7 +34,7 @@ interface AuthContextType {
   loading: boolean;
   sendOtp: (email: string) => Promise<{ error: string | null }>;
   verifyOtp: (email: string, token: string) => Promise<{ error: string | null; isNewUser: boolean; role: string | null }>;
-  signInStaff: (email: string, password: string) => Promise<{ error: string | null; role: 'admin' | 'chef' | null }>;
+  signInStaff: (email: string, password: string) => Promise<{ error: string | null; role: 'admin' | 'chef' | 'delivery' | null }>;
   completeProfile: (fullName: string, phone: string, email: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;

@@ -37,6 +37,13 @@ Deno.serve(async (req: Request) => {
         fullName: "Chef",
         phone: "9999900001",
       },
+      {
+        email: "delivery@gmail.com",
+        password: "delivery123",
+        role: "delivery",
+        fullName: "Delivery",
+        phone: "9999900002",
+      },
     ];
 
     for (const account of accounts) {

@@ -53,7 +53,7 @@ function getBrowserPathname() {
 }
 
 export function isStaffPath(pathname: string) {
-  return pathname.startsWith('/admin') || pathname.startsWith('/chef');
+  return pathname.startsWith('/admin') || pathname.startsWith('/chef') || pathname.startsWith('/delivery');
 }
 
 export const customerSupabase = createScopedSupabaseClient(customerStorageKey);
