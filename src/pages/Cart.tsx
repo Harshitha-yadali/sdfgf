@@ -272,8 +272,15 @@ export default function CartPage() {
       }
 
       if (!data) {
-        setDeliveryZone(null);
-        setDeliveryLookupError('Delivery is not available for this pincode yet');
+        setDeliveryZone({
+          id: 'default',
+          pincode: normalizedPincode,
+          area_name: 'Your Area',
+          delivery_fee: 0,
+          min_order: 0,
+          estimated_time: 0,
+          is_active: true,
+        });
         setDeliveryLookupLoading(false);
         return;
       }
