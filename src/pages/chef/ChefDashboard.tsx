@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ChefHat, LogOut, Clock, Check, Flame, Package, Users, Timer,
   Store, Truck, Volume2, VolumeX, Bell, Zap, Wallet, BadgeCheck, Copy,
-  Plus, PlusCircle,
+  Plus, PlusCircle, MapPin, Navigation,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getCompletedOrderLabel, getPendingPaymentLabel, getReadyOrderLabel, getServiceModeLabel, isAwaitingCounterPayment, isAwaitingOnlinePayment, isDineInOrder } from '../../lib/orderLabels';
@@ -894,6 +894,27 @@ export default function ChefDashboard() {
                   </span>
                 )}
               </div>
+
+              {order.order_type === 'delivery' && order.address && (
+                <div className="flex items-start gap-2 mb-3 bg-sky-500/5 border border-sky-500/15 rounded-xl px-3 py-2.5">
+                  <MapPin size={14} className="text-sky-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-[12px] text-brand-text-muted leading-snug flex-1">{order.address}</p>
+                  <a
+                    href={
+                      order.delivery_lat != null && order.delivery_lng != null
+                        ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery_lat},${order.delivery_lng}`
+                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 rounded-lg text-[11px] font-bold transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Navigation size={11} />
+                    Navigate
+                  </a>
+                </div>
+              )}
 
               {isPaymentPending && (
                 <div className="rounded-xl border-2 border-rose-500/20 bg-rose-500/5 p-3 mb-3">

@@ -3,6 +3,8 @@ import { MapPin, Search, Loader2, Navigation, X } from 'lucide-react';
 
 interface LocationResult {
   display_name: string;
+  lat?: string;
+  lon?: string;
   address: {
     road?: string;
     neighbourhood?: string;
@@ -23,6 +25,8 @@ interface LocationPickerProps {
   pincode: string;
   onAddressChange: (address: string) => void;
   onPincodeChange: (pincode: string) => void;
+  onLatChange?: (lat: number | null) => void;
+  onLngChange?: (lng: number | null) => void;
 }
 
 export default function LocationPicker({
@@ -30,6 +34,8 @@ export default function LocationPicker({
   pincode,
   onAddressChange,
   onPincodeChange,
+  onLatChange,
+  onLngChange,
 }: LocationPickerProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<LocationResult[]>([]);
@@ -89,6 +95,10 @@ export default function LocationPicker({
     const { fullAddress, postcode: pc } = formatAddress(result);
     onAddressChange(fullAddress);
     if (pc && pc.length === 6) onPincodeChange(pc);
+    const lat = result.lat ? parseFloat(result.lat) : null;
+    const lng = result.lon ? parseFloat(result.lon) : null;
+    onLatChange?.(Number.isFinite(lat) ? lat : null);
+    onLngChange?.(Number.isFinite(lng) ? lng : null);
     setQuery('');
     setResults([]);
     setShowResults(false);
@@ -109,6 +119,8 @@ export default function LocationPicker({
           const { fullAddress, postcode: pc } = formatAddress(data);
           onAddressChange(fullAddress);
           if (pc && pc.length === 6) onPincodeChange(pc);
+          onLatChange?.(latitude);
+          onLngChange?.(longitude);
         } catch { setGeoError('Could not determine your address'); }
         finally { setLocating(false); }
       },
@@ -187,7 +199,7 @@ export default function LocationPicker({
       <textarea
         placeholder="Full address (apt, floor, landmark) *"
         value={address}
-        onChange={(e) => onAddressChange(e.target.value)}
+        onChange={(e) => { onAddressChange(e.target.value); onLatChange?.(null); onLngChange?.(null); }}
         className="input-field resize-none"
         rows={2}
       />

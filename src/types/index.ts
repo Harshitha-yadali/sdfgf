@@ -189,6 +189,8 @@ export interface Order {
   queue_position: number | null;
   expires_at: string;
   created_at: string;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
 }
 
 export interface OrderItem {

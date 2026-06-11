@@ -23,6 +23,8 @@ interface CreateRazorpayOrderPayload {
   address: string;
   pincode: string;
   deliveryFee: number;
+  deliveryLat?: number;
+  deliveryLng?: number;
   subtotal: number;
   discount: number;
   total: number;

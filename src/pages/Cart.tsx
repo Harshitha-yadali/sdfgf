@@ -189,6 +189,8 @@ export default function CartPage() {
   const [pickupOption, setPickupOption] = useState<PickupOption>('dine_in');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPincode, setDeliveryPincode] = useState('');
+  const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
+  const [deliveryLng, setDeliveryLng] = useState<number | null>(null);
   const [deliveryZone, setDeliveryZone] = useState<DeliveryZone | null>(null);
   const [deliveryLookupLoading, setDeliveryLookupLoading] = useState(false);
   const [deliveryLookupError, setDeliveryLookupError] = useState('');
@@ -619,6 +621,8 @@ export default function CartPage() {
     checkoutPincode: string,
     checkoutDeliveryFee: number,
     checkoutTotal: number,
+    checkoutDeliveryLat: number | null,
+    checkoutDeliveryLng: number | null,
   ) {
     const razorpayScriptPromise = loadRazorpayScript();
     const checkoutServiceModeLabel = getServiceModeLabel({ order_type: checkoutOrderType, pickup_option: checkoutPickupOption });
@@ -633,6 +637,8 @@ export default function CartPage() {
       address: checkoutAddress,
       pincode: checkoutPincode,
       deliveryFee: checkoutDeliveryFee,
+      deliveryLat: checkoutDeliveryLat ?? undefined,
+      deliveryLng: checkoutDeliveryLng ?? undefined,
       subtotal,
       discount,
       total: checkoutTotal,
@@ -987,6 +993,8 @@ export default function CartPage() {
       const checkoutAddress = checkoutOrderType === 'delivery' ? deliveryAddress.trim() : '';
       const checkoutPincode = checkoutOrderType === 'delivery' ? deliveryPincode.trim() : '';
       const checkoutDeliveryFee = checkoutOrderType === 'delivery' ? Number(deliveryZone?.delivery_fee || 0) : 0;
+      const checkoutDeliveryLat = checkoutOrderType === 'delivery' ? deliveryLat : null;
+      const checkoutDeliveryLng = checkoutOrderType === 'delivery' ? deliveryLng : null;
       const checkoutTotal = getTotalForCheckoutMode(checkoutOrderType, checkoutPickupOption);
       const checkoutIsFreeOrder = checkoutTotal <= 0;
       const customerEmail = getCustomerEmail();
@@ -1003,6 +1011,8 @@ export default function CartPage() {
           checkoutPincode,
           checkoutDeliveryFee,
           checkoutTotal,
+          checkoutDeliveryLat,
+          checkoutDeliveryLng,
         );
         return;
       }
@@ -1016,6 +1026,8 @@ export default function CartPage() {
         address: checkoutAddress,
         pincode: checkoutPincode,
         deliveryFee: checkoutDeliveryFee,
+        deliveryLat: checkoutDeliveryLat ?? undefined,
+        deliveryLng: checkoutDeliveryLng ?? undefined,
         subtotal,
         discount,
         total: checkoutTotal,
@@ -1689,6 +1701,8 @@ export default function CartPage() {
                 pincode={deliveryPincode}
                 onAddressChange={setDeliveryAddress}
                 onPincodeChange={setDeliveryPincode}
+                onLatChange={setDeliveryLat}
+                onLngChange={setDeliveryLng}
               />
               {deliveryLookupLoading && (
                 <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-2.5 text-[12px] font-semibold text-sky-400">

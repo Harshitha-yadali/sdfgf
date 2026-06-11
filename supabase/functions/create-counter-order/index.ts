@@ -43,6 +43,8 @@ interface CreateBody {
   address?: string;
   pincode?: string;
   deliveryFee?: number;
+  deliveryLat?: number;
+  deliveryLng?: number;
   subtotal?: number;
   discount?: number;
   total?: number;
@@ -62,6 +64,8 @@ type AppOrderInsert = {
   order_type: "pickup" | "delivery";
   pickup_option: "dine_in" | "takeaway";
   delivery_fee: number;
+  delivery_lat?: number | null;
+  delivery_lng?: number | null;
   takeaway_fee: number;
   subtotal: number;
   discount: number;
@@ -285,6 +289,8 @@ Deno.serve(async (req: Request) => {
     const address = body.address?.trim() || "";
     const pincode = body.pincode?.trim() || "";
     const deliveryFee = Number(body.deliveryFee ?? 0);
+    const deliveryLat = typeof body.deliveryLat === "number" && Number.isFinite(body.deliveryLat) ? body.deliveryLat : null;
+    const deliveryLng = typeof body.deliveryLng === "number" && Number.isFinite(body.deliveryLng) ? body.deliveryLng : null;
     const paymentMethod = body.paymentMethod === "upi"
       ? "upi"
       : body.paymentMethod === "card"
@@ -438,6 +444,8 @@ Deno.serve(async (req: Request) => {
       order_type: fulfillment.orderType,
       pickup_option: fulfillment.pickupOption,
       delivery_fee: fulfillment.deliveryFee,
+      delivery_lat: fulfillment.orderType === "delivery" ? deliveryLat : null,
+      delivery_lng: fulfillment.orderType === "delivery" ? deliveryLng : null,
       takeaway_fee: fulfillment.takeawayFee,
       subtotal,
       discount,
