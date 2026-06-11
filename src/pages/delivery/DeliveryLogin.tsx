@@ -1,21 +1,30 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Truck, Loader2, ArrowRight, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function DeliveryLogin() {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const prefilled = (location.state as { email?: string } | null)?.email || '';
+  const [email, setEmail] = useState(prefilled);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { profile, signInStaff } = useAuth();
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (profile && (profile.role === 'delivery' || profile.role === 'admin')) {
       navigate('/delivery', { replace: true });
     }
   }, [profile, navigate]);
+
+  useEffect(() => {
+    if (prefilled) {
+      passwordRef.current?.focus();
+    }
+  }, [prefilled]);
 
   function normalizedEmail() {
     return email.trim().toLowerCase();
@@ -82,7 +91,7 @@ export default function DeliveryLogin() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-brand-surface-light border border-brand-border rounded-xl pl-10 pr-3 py-3 text-sm text-white placeholder-brand-text-dim outline-none focus:border-sky-400 transition-colors"
                 autoComplete="email"
-                autoFocus
+                autoFocus={!prefilled}
                 required
               />
             </div>
@@ -95,6 +104,7 @@ export default function DeliveryLogin() {
             <div className="relative">
               <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-dim pointer-events-none" />
               <input
+                ref={passwordRef}
                 type="password"
                 placeholder="Enter password"
                 value={password}
@@ -129,3 +139,6 @@ export default function DeliveryLogin() {
     </div>
   );
 }
+
+
+export default DeliveryLogin

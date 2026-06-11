@@ -66,7 +66,7 @@ export default function AuthPage() {
     }
 
     if (email === 'delivery@gmail.com') {
-      navigate('/delivery/login', { replace: true });
+      navigate('/delivery/login', { replace: true, state: { email } });
       return;
     }
 
