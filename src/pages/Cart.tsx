@@ -1733,7 +1733,6 @@ export default function CartPage() {
 
           {activeOrderType === 'delivery' && (
             <div className="px-4 pb-4 border-t border-brand-border pt-3 space-y-3">
-              <p className="text-[12px] font-bold text-white">Delivery address</p>
               <LocationPicker
                 address={deliveryAddress}
                 pincode={deliveryPincode}
@@ -1891,6 +1890,8 @@ export default function CartPage() {
             onContinueCustomer={handleCustomerContinue}
             onSelectPaymentMethod={handlePaymentChoice}
             onContinuePayment={handlePaymentContinue}
+            onLatChange={setDeliveryLat}
+            onLngChange={setDeliveryLng}
           />
         )}
       </AnimatePresence>
@@ -1961,6 +1962,8 @@ function CheckoutFlowModal({
   onContinueCustomer,
   onSelectPaymentMethod,
   onContinuePayment,
+  onLatChange,
+  onLngChange,
 }: {
   step: CheckoutStep;
   isSignedIn: boolean;
@@ -2001,6 +2004,8 @@ function CheckoutFlowModal({
   onContinueCustomer: () => void;
   onSelectPaymentMethod: (method: PaymentMethod) => void;
   onContinuePayment: () => void;
+  onLatChange: (lat: number | null) => void;
+  onLngChange: (lng: number | null) => void;
 }) {
   const isDelivery = orderType === 'delivery';
   const orderTypeSummary = isDelivery
@@ -2109,13 +2114,6 @@ function CheckoutFlowModal({
 
             {isDelivery && (
               <div className="rounded-xl border border-brand-border bg-brand-surface p-4">
-                <div className="mb-3">
-                  <p className="text-[13px] font-bold text-white">Delivery address</p>
-                  <p className="mt-1 text-[12px] text-brand-text-dim">
-                    Use your current location or search for your area, then confirm the exact address.
-                  </p>
-                </div>
-
                 <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="relative">
                     <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-text-dim" />
@@ -2147,6 +2145,8 @@ function CheckoutFlowModal({
                   pincode={pincode}
                   onAddressChange={onAddressChange}
                   onPincodeChange={onPincodeChange}
+                  onLatChange={onLatChange}
+                  onLngChange={onLngChange}
                 />
 
                 {deliveryLookupLoading && (
@@ -2159,11 +2159,13 @@ function CheckoutFlowModal({
                   <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
                     <p className="text-[13px] font-bold text-emerald-400">{deliveryZone.area_name}</p>
                     <p className="mt-1 text-[12px] text-emerald-300">
-                      Delivery fee ₹{deliveryFee.toFixed(0)}
+                      {deliveryFee === 0
+                        ? 'Free delivery'
+                        : `Delivery fee ₹${deliveryFee.toFixed(0)}`}
                       {deliveryEstimatedTime > 0 ? ` • ETA ~${deliveryEstimatedTime} min` : ''}
                     </p>
-                    <p className="mt-1 text-[12px] text-emerald-300">
-                      Minimum order ₹{deliveryMinimumOrder.toFixed(0)}
+                    <p className="mt-0.5 text-[11px] text-emerald-300/70">
+                      Free delivery above ₹{FREE_DELIVERY_THRESHOLD}
                     </p>
                   </div>
                 )}
