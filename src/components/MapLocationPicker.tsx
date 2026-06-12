@@ -276,30 +276,54 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       <div className="flex-1 relative min-h-0">
         <div ref={mapContainerRef} className="absolute inset-0" />
 
-        {/* Fixed center pin (map moves under this) */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[10]">
-          <div className="flex flex-col items-center" style={{ marginTop: '-44px' }}>
-            <div
-              className="w-11 h-11 rounded-full flex items-center justify-center border-[3px] border-white"
-              style={{ background: '#D8B24E', boxShadow: '0 4px 24px rgba(216,178,78,0.55)' }}
-            >
-              <MapPin size={20} className="text-[#0f1117]" strokeWidth={2.8} />
-            </div>
-            {/* Pin needle */}
-            <div
-              className="w-[3px] h-[10px] rounded-b-full"
-              style={{ background: 'rgba(216,178,78,0.7)' }}
-            />
-            {/* Shadow dot */}
-            <div
-              className="w-[6px] h-[3px] rounded-full mt-0.5"
-              style={{ background: 'rgba(0,0,0,0.3)' }}
-            />
+        {/* Fixed center pin — positioned via transform so the needle tip is at exact center */}
+        <div
+          className="absolute pointer-events-none flex flex-col items-center"
+          style={{
+            zIndex: 9999,
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <div
+            style={{
+              width: 46,
+              height: 46,
+              borderRadius: '50%',
+              background: '#D8B24E',
+              border: '3px solid #ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 6px 28px rgba(216,178,78,0.65), 0 2px 8px rgba(0,0,0,0.4)',
+            }}
+          >
+            <MapPin size={22} color="#0f1117" strokeWidth={2.8} />
           </div>
+          {/* Needle */}
+          <div
+            style={{
+              width: 3,
+              height: 14,
+              background: '#D8B24E',
+              borderRadius: '0 0 3px 3px',
+            }}
+          />
+          {/* Ground shadow */}
+          <div
+            style={{
+              width: 10,
+              height: 4,
+              borderRadius: '50%',
+              background: 'rgba(0,0,0,0.25)',
+              marginTop: 1,
+            }}
+          />
         </div>
 
         {/* Drag hint */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[10] pointer-events-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none" style={{ zIndex: 9999 }}>
           <div
             className="rounded-full px-3.5 py-1.5 text-[11px] font-semibold text-white/90"
             style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }}
