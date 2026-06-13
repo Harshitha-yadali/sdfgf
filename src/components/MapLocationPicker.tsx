@@ -135,9 +135,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     if (!L || !mapInstance) return;
     const zoom = mapInstance.getZoom();
     if (zoom < 16) {
-      if (poiLayerRef.current) {
-        poiLayerRef.current.clearLayers();
-      }
+      if (poiLayerRef.current) poiLayerRef.current.clearLayers();
       return;
     }
     const bounds = mapInstance.getBounds();
@@ -148,12 +146,32 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
 
     const seq = ++poiFetchSeqRef.current;
     try {
-      const { data, error } = await supabase.functions.invoke('nearby-pois', {
-        body: { minLat, minLng, maxLat, maxLng },
+      // Query Overpass directly from the browser — faster than edge function hop,
+      // avoids server-side rate limits, and works without any API keys.
+      const bbox = `${minLat},${minLng},${maxLat},${maxLng}`;
+      const query = `[out:json][timeout:10];(node["name"](${bbox});way["name"]["building"](${bbox});way["name"]["amenity"](${bbox});way["name"]["shop"](${bbox}););out tags center 80;`;
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: query,
       });
-      if (error || seq !== poiFetchSeqRef.current) return;
+      if (!res.ok || seq !== poiFetchSeqRef.current) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pois: { id: string; name: string; lat: number; lng: number; kind: string }[] = data?.pois ?? [];
+      const data: any = await res.json();
+      if (seq !== poiFetchSeqRef.current) return;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const elements: any[] = Array.isArray(data?.elements) ? data.elements : [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pois = elements.map((el: any) => {
+        const name: string = el.tags?.name || el.tags?.['name:en'] || '';
+        if (!name) return null;
+        const lat = el.lat ?? el.center?.lat;
+        const lng = el.lon ?? el.center?.lon;
+        if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+        return { name, lat, lng };
+      }).filter(Boolean) as { name: string; lat: number; lng: number }[];
+
       if (!poiLayerRef.current) {
         poiLayerRef.current = L.layerGroup().addTo(mapInstance);
       } else {
