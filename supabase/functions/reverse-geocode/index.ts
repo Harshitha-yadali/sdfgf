@@ -60,11 +60,14 @@ async function getMapplsToken(): Promise<string> {
 }
 
 async function tryMappls(lat: number, lng: number): Promise<{ payload: ReverseGeocodePayload; provider: string } | null> {
-  const token = await getMapplsToken();
-  if (!token) return null;
+  if (!MAPPLS_REST_KEY) return null;
   try {
-    const url = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY || MAPPLS_CLIENT_ID}/rev_geocode?lat=${lat}&lng=${lng}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const url = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
+    // Use OAuth token if available, otherwise the REST key in the URL path is sufficient
+    const token = await getMapplsToken();
+    const fetchHeaders: Record<string, string> = {};
+    if (token) fetchHeaders["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(url, { headers: fetchHeaders });
     if (!res.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
