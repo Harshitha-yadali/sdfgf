@@ -32,6 +32,13 @@ interface NominatimResult {
   };
 }
 
+interface SearchSuggestion {
+  label: string;
+  sublabel: string;
+  lat: number;
+  lng: number;
+}
+
 export interface MapConfirmData {
   address: string;
   pincode: string;
@@ -63,9 +70,10 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const [detail, setDetail] = useState('');
   const [detailError, setDetailError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<NominatimResult[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [noResults, setNoResults] = useState(false);
   const [locating, setLocating] = useState(false);
   const [centerLat, setCenterLat] = useState(initialLat ?? DEFAULT_LAT);
   const [centerLng, setCenterLng] = useState(initialLng ?? DEFAULT_LNG);
@@ -181,17 +189,68 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   }
 
   async function doSearch(q: string) {
-    if (q.trim().length < 3) { setSearchResults([]); return; }
+    if (q.trim().length < 2) { setSearchResults([]); setNoResults(false); return; }
     setSearching(true);
+    setNoResults(false);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&countrycodes=in&limit=8&q=${encodeURIComponent(q)}`
-      );
-      const data: NominatimResult[] = await res.json();
-      setSearchResults(data);
-      setShowResults(true);
+      // Photon (Komoot) — excellent OSM POI/building coverage with proximity bias
+      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8&lang=en&lat=${centerLat}&lon=${centerLng}`;
+      const photonRes = await fetch(photonUrl);
+      const photonData = await photonRes.json();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const photonSuggestions: SearchSuggestion[] = (photonData.features || []).map((f: any) => {
+        const p = f.properties;
+        const name = p.name || p.street || p.city || '';
+        const parts: string[] = [];
+        if (p.street && p.street !== name) parts.push(p.street);
+        if (p.district) parts.push(p.district);
+        if (p.city) parts.push(p.city);
+        if (p.state) parts.push(p.state);
+        return {
+          label: name,
+          sublabel: parts.join(', '),
+          lat: f.geometry.coordinates[1] as number,
+          lng: f.geometry.coordinates[0] as number,
+        };
+      }).filter((s: SearchSuggestion) => s.label);
+
+      if (photonSuggestions.length > 0) {
+        setSearchResults(photonSuggestions);
+        setShowResults(true);
+        setNoResults(false);
+        return;
+      }
+
+      // Fallback: Nominatim with viewbox bias around current map center
+      const delta = 0.15;
+      const viewbox = `${centerLng - delta},${centerLat - delta},${centerLng + delta},${centerLat + delta}`;
+      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&countrycodes=in&limit=8&viewbox=${viewbox}&q=${encodeURIComponent(q)}`;
+      const nomRes = await fetch(nomUrl);
+      const nomData: NominatimResult[] = await nomRes.json();
+
+      const nomSuggestions: SearchSuggestion[] = nomData.map((r) => {
+        const a = r.address;
+        const name = r.namedetails?.name || a.amenity || a.shop || a.building || a.road || r.display_name.split(',')[0];
+        const parts: string[] = [];
+        if (a.road && a.road !== name) parts.push(a.road);
+        if (a.neighbourhood) parts.push(a.neighbourhood);
+        const city = a.city || a.town || a.village || '';
+        if (city) parts.push(city);
+        return {
+          label: name,
+          sublabel: parts.join(', '),
+          lat: parseFloat(r.lat),
+          lng: parseFloat(r.lon),
+        };
+      }).filter((s) => s.label);
+
+      setSearchResults(nomSuggestions);
+      setShowResults(nomSuggestions.length > 0);
+      setNoResults(nomSuggestions.length === 0);
     } catch {
       setSearchResults([]);
+      setNoResults(true);
     } finally {
       setSearching(false);
     }
@@ -199,16 +258,17 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
 
   function handleSearchChange(value: string) {
     setSearchQuery(value);
-    if (!value.trim()) { setSearchResults([]); setShowResults(false); }
+    if (!value.trim()) { setSearchResults([]); setShowResults(false); setNoResults(false); }
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => void doSearch(value), 400);
+    searchDebounceRef.current = setTimeout(() => void doSearch(value), 300);
   }
 
-  function selectSearchResult(r: NominatimResult) {
-    flyTo(parseFloat(r.lat), parseFloat(r.lon));
+  function selectSearchResult(r: SearchSuggestion) {
+    flyTo(r.lat, r.lng);
     setSearchQuery('');
     setSearchResults([]);
     setShowResults(false);
+    setNoResults(false);
   }
 
   function handleConfirm() {
@@ -268,28 +328,40 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
             : searchQuery && (
               <button
                 type="button"
-                onClick={() => { setSearchQuery(''); setSearchResults([]); setShowResults(false); }}
+                onClick={() => { setSearchQuery(''); setSearchResults([]); setShowResults(false); setNoResults(false); }}
                 className="absolute right-7 top-1/2 -translate-y-1/2 text-brand-text-dim hover:text-white transition-colors"
               >
                 <X size={15} strokeWidth={2.2} />
               </button>
             )}
 
-          {showResults && searchResults.length > 0 && (
-            <div className="absolute left-4 right-4 top-full mt-0.5 bg-brand-surface border border-brand-border rounded-xl shadow-elevated z-10 max-h-56 overflow-y-auto">
-              {searchResults.map((r, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => selectSearchResult(r)}
-                  className="w-full text-left px-4 py-3 hover:bg-brand-surface-light transition-colors border-b border-brand-border last:border-0 flex items-start gap-3"
-                >
-                  <MapPin size={14} strokeWidth={2.2} className="text-brand-gold flex-shrink-0 mt-0.5" />
-                  <span className="text-[13px] text-brand-text-muted leading-snug line-clamp-2">{r.display_name}</span>
-                </button>
-              ))}
+          {(showResults && searchResults.length > 0) || noResults ? (
+            <div className="absolute left-4 right-4 top-full mt-0.5 bg-brand-surface border border-brand-border rounded-xl shadow-elevated z-10 max-h-64 overflow-y-auto">
+              {noResults ? (
+                <div className="px-4 py-4 text-center">
+                  <p className="text-[13px] text-brand-text-dim">No results found</p>
+                  <p className="text-[11px] text-brand-text-dim/60 mt-1">Try a different spelling or drag the map pin instead</p>
+                </div>
+              ) : (
+                searchResults.map((r, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => selectSearchResult(r)}
+                    className="w-full text-left px-4 py-3 hover:bg-brand-surface-light transition-colors border-b border-brand-border last:border-0 flex items-start gap-3"
+                  >
+                    <MapPin size={14} strokeWidth={2.2} className="text-brand-gold flex-shrink-0 mt-1" />
+                    <div className="min-w-0">
+                      <p className="text-[13px] text-white font-semibold leading-snug truncate">{r.label}</p>
+                      {r.sublabel && (
+                        <p className="text-[11px] text-brand-text-dim leading-snug truncate mt-0.5">{r.sublabel}</p>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
