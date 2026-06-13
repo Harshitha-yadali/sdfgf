@@ -125,11 +125,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       const a = data.address;
 
       // Prefer specific place name (building/amenity/shop) then road-level
-      const placeName = a.amenity || a.shop || a.building || a.house_name || data.namedetails?.['name'] || data.name || '';
-      const isSpecific = !!placeName;
-      const area = placeName || a.neighbourhood || a.quarter || a.suburb || a.town || a.city || a.county || '';
-      setAreaName(area);
-      setHasSpecificPlace(isSpecific);
+      let placeName = a.amenity || a.shop || a.building || a.house_name || data.namedetails?.['name'] || data.name || '';
 
       // Build address string with most specific parts first
       const parts: string[] = [];
@@ -145,6 +141,62 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
 
       const pc = (a.postcode || '').replace(/\s/g, '');
       setDetectedPincode(pc.length === 6 ? pc : '');
+
+      // If Nominatim didn't return a specific building/shop/amenity, query Overpass
+      // for the nearest named POI within ~80m. This is how Zepto/Rapido surface
+      // building names that Nominatim's reverse misses.
+      if (!placeName) {
+        try {
+          const overpassQuery = `[out:json][timeout:6];(node(around:80,${lat},${lng})["name"];way(around:80,${lat},${lng})["name"];);out tags center 25;`;
+          const overpassRes = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: overpassQuery,
+          });
+          if (overpassRes.ok) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const op: any = await overpassRes.json();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const elements: any[] = Array.isArray(op?.elements) ? op.elements : [];
+            const scored = elements
+              .map((el) => {
+                const name: string = el.tags?.name || el.tags?.['name:en'] || '';
+                if (!name) return null;
+                const elLat = el.lat ?? el.center?.lat;
+                const elLng = el.lon ?? el.center?.lon;
+                if (typeof elLat !== 'number' || typeof elLng !== 'number') return null;
+                const dLat = (elLat - lat) * 111000;
+                const dLng = (elLng - lng) * 111000 * Math.cos((lat * Math.PI) / 180);
+                const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+                const tags = el.tags || {};
+                const priority =
+                  tags.shop ? 0 :
+                  tags.amenity ? 1 :
+                  tags.building && tags.building !== 'yes' ? 2 :
+                  tags.tourism ? 3 :
+                  tags.office ? 4 :
+                  tags.leisure ? 5 :
+                  tags.healthcare ? 6 :
+                  tags.craft ? 7 :
+                  tags.building === 'yes' ? 8 :
+                  9;
+                return { name, dist, priority };
+              })
+              .filter((x): x is { name: string; dist: number; priority: number } => x !== null)
+              .sort((a, b) => (a.priority - b.priority) || (a.dist - b.dist));
+            if (scored.length > 0 && scored[0].dist < 80) {
+              placeName = scored[0].name;
+            }
+          }
+        } catch {
+          // Overpass is best-effort; fall through to neighbourhood
+        }
+      }
+
+      const isSpecific = !!placeName;
+      const area = placeName || a.neighbourhood || a.quarter || a.suburb || a.town || a.city || a.county || '';
+      setAreaName(area);
+      setHasSpecificPlace(isSpecific);
     } catch {
       setAreaName('');
       setHasSpecificPlace(false);
