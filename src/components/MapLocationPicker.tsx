@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, MapPin, Navigation, Search, Loader2, X } from 'lucide-react';
+import { ArrowLeft, MapPin, Navigation, Search, Loader2, X, Home } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 
 const DEFAULT_LAT = 16.4724;
 const DEFAULT_LNG = 80.6516;
-const DEFAULT_ZOOM = 15;
+const DEFAULT_ZOOM = 18;
 
 interface NominatimResult {
   display_name: string;
   lat: string;
   lon: string;
+  name?: string;
+  namedetails?: Record<string, string>;
   address: {
     road?: string;
     neighbourhood?: string;
@@ -21,7 +23,12 @@ interface NominatimResult {
     state?: string;
     postcode?: string;
     house_number?: string;
+    house_name?: string;
+    building?: string;
+    amenity?: string;
+    shop?: string;
     county?: string;
+    quarter?: string;
   };
 }
 
@@ -42,6 +49,7 @@ interface Props {
 export default function MapLocationPicker({ initialLat, initialLng, onConfirm, onClose }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
+  const detailInputRef = useRef<HTMLInputElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
   const resolveDebounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -53,6 +61,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const [detectedPincode, setDetectedPincode] = useState('');
   const [manualPincode, setManualPincode] = useState('');
   const [detail, setDetail] = useState('');
+  const [detailError, setDetailError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<NominatimResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -65,21 +74,28 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     setResolving(true);
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${lat}&lon=${lng}`
+        `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&namedetails=1&zoom=18&lat=${lat}&lon=${lng}`
       );
       const data: NominatimResult = await res.json();
       const a = data.address;
-      const area = a.neighbourhood || a.suburb || a.town || a.city || a.county || '';
+
+      // Prefer specific place name (building/amenity/shop) then road-level
+      const placeName = a.amenity || a.shop || a.building || a.house_name || '';
+      const area = placeName || a.neighbourhood || a.quarter || a.suburb || a.town || a.city || a.county || '';
       setAreaName(area);
+
+      // Build address string with most specific parts first
       const parts: string[] = [];
       if (a.house_number) parts.push(a.house_number);
       if (a.road) parts.push(a.road);
       if (a.neighbourhood) parts.push(a.neighbourhood);
-      if (a.suburb && a.suburb !== a.neighbourhood) parts.push(a.suburb);
+      if (a.quarter && a.quarter !== a.neighbourhood) parts.push(a.quarter);
+      if (a.suburb && a.suburb !== a.neighbourhood && a.suburb !== a.quarter) parts.push(a.suburb);
       const city = a.city || a.town || a.village || '';
       if (city) parts.push(city);
       if (a.state) parts.push(a.state);
       setFullAddress(parts.join(', '));
+
       const pc = (a.postcode || '').replace(/\s/g, '');
       setDetectedPincode(pc.length === 6 ? pc : '');
     } catch {
@@ -151,7 +167,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   }, []);
 
   function flyTo(lat: number, lng: number) {
-    if (mapRef.current) mapRef.current.flyTo([lat, lng], 16, { duration: 0.8 });
+    if (mapRef.current) mapRef.current.flyTo([lat, lng], 18, { duration: 0.8 });
   }
 
   function detectLocation() {
@@ -169,7 +185,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     setSearching(true);
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=in&limit=5&q=${encodeURIComponent(q)}`
+        `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&countrycodes=in&limit=8&q=${encodeURIComponent(q)}`
       );
       const data: NominatimResult[] = await res.json();
       setSearchResults(data);
@@ -196,9 +212,14 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   }
 
   function handleConfirm() {
+    if (!detail.trim()) {
+      setDetailError(true);
+      detailInputRef.current?.focus();
+      return;
+    }
     const finalPincode = detectedPincode || manualPincode.replace(/\D/g, '').slice(0, 6);
     const baseAddress = fullAddress || areaName || '';
-    const finalAddress = detail.trim() ? `${detail.trim()}, ${baseAddress}` : baseAddress;
+    const finalAddress = `${detail.trim()}, ${baseAddress}`;
     onConfirm({ address: finalAddress, pincode: finalPincode, lat: centerLat, lng: centerLng });
   }
 
@@ -276,7 +297,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       <div className="flex-1 relative min-h-0">
         <div ref={mapContainerRef} className="absolute inset-0" />
 
-        {/* Fixed center pin — positioned via transform so the needle tip is at exact center */}
+        {/* Fixed center pin */}
         <div
           className="absolute pointer-events-none flex flex-col items-center"
           style={{
@@ -301,25 +322,8 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
           >
             <MapPin size={22} color="#0f1117" strokeWidth={2.8} />
           </div>
-          {/* Needle */}
-          <div
-            style={{
-              width: 3,
-              height: 14,
-              background: '#D8B24E',
-              borderRadius: '0 0 3px 3px',
-            }}
-          />
-          {/* Ground shadow */}
-          <div
-            style={{
-              width: 10,
-              height: 4,
-              borderRadius: '50%',
-              background: 'rgba(0,0,0,0.25)',
-              marginTop: 1,
-            }}
-          />
+          <div style={{ width: 3, height: 14, background: '#D8B24E', borderRadius: '0 0 3px 3px' }} />
+          <div style={{ width: 10, height: 4, borderRadius: '50%', background: 'rgba(0,0,0,0.25)', marginTop: 1 }} />
         </div>
 
         {/* Drag hint */}
@@ -335,8 +339,8 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
 
       {/* Bottom sheet */}
       <div className="flex-shrink-0 bg-brand-surface border-t border-brand-border px-4 pt-4 pb-6 space-y-3">
-        {/* Address preview */}
-        <div className="flex items-start gap-3 min-h-[52px]">
+        {/* Detected area */}
+        <div className="flex items-start gap-3 min-h-[44px]">
           <div
             className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5"
             style={{ background: 'rgba(216,178,78,0.12)' }}
@@ -369,6 +373,32 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
           </div>
         </div>
 
+        {/* House / flat input — required */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-[12px] font-bold text-white">
+            <Home size={12} strokeWidth={2.5} className="text-brand-gold" />
+            House / Flat no. &amp; Building name
+            <span className="text-red-400 text-[13px] leading-none">*</span>
+          </label>
+          <input
+            ref={detailInputRef}
+            type="text"
+            placeholder="e.g. Flat 4B, Sri Sai Residency"
+            value={detail}
+            onChange={(e) => { setDetail(e.target.value); if (e.target.value.trim()) setDetailError(false); }}
+            className={`input-field text-[14px] transition-colors ${detailError ? 'border-red-500/60 focus:border-red-500' : ''}`}
+          />
+          {detailError ? (
+            <p className="text-[12px] text-red-400 font-semibold">
+              Enter your house / flat number to continue
+            </p>
+          ) : (
+            <p className="text-[11px] text-brand-text-dim leading-snug">
+              The map shows the area — your exact house number helps the delivery partner find you
+            </p>
+          )}
+        </div>
+
         {/* Pincode fallback */}
         {needsPincodeInput && (
           <input
@@ -380,15 +410,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
             className="input-field text-[14px]"
           />
         )}
-
-        {/* Flat / landmark */}
-        <input
-          type="text"
-          placeholder="Flat no., floor, landmark (optional)"
-          value={detail}
-          onChange={(e) => setDetail(e.target.value)}
-          className="input-field text-[14px]"
-        />
 
         {/* Confirm */}
         <button
