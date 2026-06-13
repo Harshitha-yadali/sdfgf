@@ -1,11 +1,31 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, MapPin, Navigation, Search, Loader2, X, Home } from 'lucide-react';
+import { ArrowLeft, MapPin, Navigation, Search, Loader2, X, Home, Layers } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 
 const DEFAULT_LAT = 16.4724;
 const DEFAULT_LNG = 80.6516;
-const DEFAULT_ZOOM = 18;
+const DEFAULT_ZOOM = 19;
+const TILE_PREF_KEY = 'mapTilePreference';
+
+type TileMode = 'street' | 'satellite';
+
+const TILE_LAYERS = {
+  street: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    maxNativeZoom: 19,
+    maxZoom: 21,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+    subdomains: 'abcd',
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    maxNativeZoom: 19,
+    maxZoom: 21,
+    attribution: 'Tiles © Esri / Maxar / Earthstar Geographics',
+    subdomains: '',
+  },
+};
 
 interface NominatimResult {
   display_name: string;
@@ -59,6 +79,10 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const detailInputRef = useRef<HTMLInputElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tileLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const leafletRef = useRef<any>(null);
   const resolveDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -77,6 +101,11 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const [locating, setLocating] = useState(false);
   const [centerLat, setCenterLat] = useState(initialLat ?? DEFAULT_LAT);
   const [centerLng, setCenterLng] = useState(initialLng ?? DEFAULT_LNG);
+  const [tileMode, setTileMode] = useState<TileMode>(() => {
+    if (typeof window === 'undefined') return 'street';
+    const saved = window.localStorage.getItem(TILE_PREF_KEY);
+    return saved === 'satellite' ? 'satellite' : 'street';
+  });
 
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
     setResolving(true);
@@ -125,15 +154,21 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       const L = (await import('leaflet')).default;
       if (!mounted || !mapContainerRef.current) return;
 
+      leafletRef.current = L;
+
       mapInstance = L.map(mapContainerRef.current, {
         center: [initialLat ?? DEFAULT_LAT, initialLng ?? DEFAULT_LNG],
         zoom: DEFAULT_ZOOM,
+        maxZoom: 21,
         zoomControl: false,
       });
 
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+      const cfg = TILE_LAYERS[tileMode];
+      tileLayerRef.current = L.tileLayer(cfg.url, {
+        maxNativeZoom: cfg.maxNativeZoom,
+        maxZoom: cfg.maxZoom,
+        attribution: cfg.attribution,
+        subdomains: cfg.subdomains,
       }).addTo(mapInstance);
 
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
@@ -174,8 +209,23 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Swap tile layer when mode toggles
+  useEffect(() => {
+    if (!mapRef.current || !leafletRef.current) return;
+    const L = leafletRef.current;
+    const cfg = TILE_LAYERS[tileMode];
+    if (tileLayerRef.current) mapRef.current.removeLayer(tileLayerRef.current);
+    tileLayerRef.current = L.tileLayer(cfg.url, {
+      maxNativeZoom: cfg.maxNativeZoom,
+      maxZoom: cfg.maxZoom,
+      attribution: cfg.attribution,
+      subdomains: cfg.subdomains,
+    }).addTo(mapRef.current);
+    if (typeof window !== 'undefined') window.localStorage.setItem(TILE_PREF_KEY, tileMode);
+  }, [tileMode]);
+
   function flyTo(lat: number, lng: number) {
-    if (mapRef.current) mapRef.current.flyTo([lat, lng], 18, { duration: 0.8 });
+    if (mapRef.current) mapRef.current.flyTo([lat, lng], 19, { duration: 0.8 });
   }
 
   function detectLocation() {
@@ -362,7 +412,10 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
               {noResults ? (
                 <div className="px-4 py-4 text-center">
                   <p className="text-[13px] text-brand-text-dim font-semibold">No results found</p>
-                  <p className="text-[11px] text-brand-text-dim/60 mt-1 leading-snug">This place may not be in the map database yet. <br/>Drag the map pin to your exact location instead.</p>
+                  <p className="text-[11px] text-brand-text-dim/60 mt-1 leading-snug">
+                    This place may not be in the map database yet.<br />
+                    Tap <span className="text-brand-gold font-bold">Satellite</span> to spot your building from above, then drag the pin.
+                  </p>
                 </div>
               ) : (
                 searchResults.map((r, i) => (
@@ -426,9 +479,20 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
             className="rounded-full px-3.5 py-1.5 text-[11px] font-semibold text-white/90"
             style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }}
           >
-            Drag map to move pin
+            {tileMode === 'satellite' ? 'Drag to your rooftop' : 'Drag map to move pin'}
           </div>
         </div>
+
+        {/* Map / Satellite toggle */}
+        <button
+          type="button"
+          onClick={() => setTileMode((m) => (m === 'street' ? 'satellite' : 'street'))}
+          className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-bold text-white shadow-elevated hover:scale-105 active:scale-95 transition-transform"
+          style={{ zIndex: 9999, background: 'rgba(15,17,23,0.85)', backdropFilter: 'blur(8px)', border: '1px solid rgba(216,178,78,0.35)' }}
+        >
+          <Layers size={14} strokeWidth={2.2} className="text-brand-gold" />
+          <span>{tileMode === 'street' ? 'Satellite' : 'Map'}</span>
+        </button>
       </div>
 
       {/* Bottom sheet */}
