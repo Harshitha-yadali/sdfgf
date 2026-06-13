@@ -90,14 +90,19 @@ async function tryMappls(lat: number, lng: number): Promise<{ payload: ReverseGe
           const suggestions: any[] = Array.isArray(nearbyData?.suggestedLocations)
             ? nearbyData.suggestedLocations
             : [];
+          // Only accept residential/building types — never commercial shops or POIs.
+          // Mappls type strings for Indian apartment complexes include "RESIDENTIAL SOCIETIES",
+          // "BUILDINGS", "SOCIETY", "APARTMENT", "COMPLEX". Commercial types (SHOP, OPTICIAN,
+          // RESTAURANT, etc.) are excluded so a nearby Lenskart can't become the building name.
           const BUILDING_TYPES = ["RESIDENTIAL", "BUILDING", "SOCIETY", "APARTMENT", "COMPLEX"];
           const best = suggestions
-            .filter((s) => typeof s.distance === "number" && s.distance <= 80 && s.placeName)
-            .sort((a, b) => {
-              const aBuilding = BUILDING_TYPES.some((t) => (a.type || "").toUpperCase().includes(t)) ? 0 : 1;
-              const bBuilding = BUILDING_TYPES.some((t) => (b.type || "").toUpperCase().includes(t)) ? 0 : 1;
-              return (aBuilding - bBuilding) || (a.distance - b.distance);
-            })[0];
+            .filter((s) =>
+              typeof s.distance === "number" &&
+              s.distance <= 80 &&
+              s.placeName &&
+              BUILDING_TYPES.some((t) => (s.type || "").toUpperCase().includes(t)),
+            )
+            .sort((a, b) => a.distance - b.distance)[0];
           if (best) buildingName = best.placeName as string;
         }
       } catch {
