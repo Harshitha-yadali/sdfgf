@@ -95,6 +95,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
 
   const [resolving, setResolving] = useState(true);
   const [areaName, setAreaName] = useState('');
+  const [hasSpecificPlace, setHasSpecificPlace] = useState(false);
   const [fullAddress, setFullAddress] = useState('');
   const [detectedPincode, setDetectedPincode] = useState('');
   const [manualPincode, setManualPincode] = useState('');
@@ -118,15 +119,17 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     setResolving(true);
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&namedetails=1&zoom=18&lat=${lat}&lon=${lng}`
+        `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&namedetails=1&extratags=1&zoom=19&lat=${lat}&lon=${lng}`
       );
       const data: NominatimResult = await res.json();
       const a = data.address;
 
       // Prefer specific place name (building/amenity/shop) then road-level
-      const placeName = a.amenity || a.shop || a.building || a.house_name || '';
+      const placeName = a.amenity || a.shop || a.building || a.house_name || data.namedetails?.['name'] || data.name || '';
+      const isSpecific = !!placeName;
       const area = placeName || a.neighbourhood || a.quarter || a.suburb || a.town || a.city || a.county || '';
       setAreaName(area);
+      setHasSpecificPlace(isSpecific);
 
       // Build address string with most specific parts first
       const parts: string[] = [];
@@ -144,6 +147,7 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       setDetectedPincode(pc.length === 6 ? pc : '');
     } catch {
       setAreaName('');
+      setHasSpecificPlace(false);
       setFullAddress('');
       setDetectedPincode('');
     } finally {
@@ -549,12 +553,24 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
             ) : (
               <>
                 <p className="text-[15px] font-bold text-white leading-tight">
-                  {areaName || 'Move map to set location'}
+                  {detail.trim() || areaName || 'Move map to set location'}
                 </p>
+                {detail.trim() && areaName && (
+                  <p className="text-[11px] text-brand-gold/90 leading-snug mt-0.5 font-semibold">
+                    near {areaName}
+                  </p>
+                )}
                 {fullAddress && (
                   <p className="text-[12px] text-brand-text-muted leading-snug mt-0.5 line-clamp-2">
                     {fullAddress}
                   </p>
+                )}
+                {!hasSpecificPlace && !detail.trim() && areaName && (
+                  <div className="mt-1.5 flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-brand-gold/10 border border-brand-gold/25">
+                    <span className="text-[10px] leading-snug text-brand-gold font-semibold">
+                      Building name not in maps. Type your building below — your delivery partner will see the exact pin location too.
+                    </span>
+                  </div>
                 )}
                 {detectedPincode && (
                   <span className="inline-block mt-1 text-[11px] font-semibold text-brand-text-dim bg-brand-surface-light px-2 py-0.5 rounded-md">
