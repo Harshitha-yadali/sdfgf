@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css';
 
 const DEFAULT_LAT = 16.4724;
 const DEFAULT_LNG = 80.6516;
-const DEFAULT_ZOOM = 19;
+const DEFAULT_ZOOM = 17;
 const TILE_PREF_KEY = 'mapTilePreference';
 
 type TileMode = 'street' | 'satellite';
@@ -26,6 +26,9 @@ const TILE_LAYERS = {
     subdomains: '',
   },
 };
+
+const SATELLITE_LABELS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+const SATELLITE_TRANSPORT_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
 
 interface NominatimResult {
   display_name: string;
@@ -81,6 +84,10 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const mapRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tileLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const labelsLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transportLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leafletRef = useRef<any>(null);
   const resolveDebounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -171,6 +178,18 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
         subdomains: cfg.subdomains,
       }).addTo(mapInstance);
 
+      if (tileMode === 'satellite') {
+        transportLayerRef.current = L.tileLayer(SATELLITE_TRANSPORT_URL, {
+          maxNativeZoom: 19,
+          maxZoom: 21,
+          opacity: 0.95,
+        }).addTo(mapInstance);
+        labelsLayerRef.current = L.tileLayer(SATELLITE_LABELS_URL, {
+          maxNativeZoom: 19,
+          maxZoom: 21,
+        }).addTo(mapInstance);
+      }
+
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
 
       mapInstance.on('moveend', () => {
@@ -215,17 +234,33 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     const L = leafletRef.current;
     const cfg = TILE_LAYERS[tileMode];
     if (tileLayerRef.current) mapRef.current.removeLayer(tileLayerRef.current);
+    if (labelsLayerRef.current) { mapRef.current.removeLayer(labelsLayerRef.current); labelsLayerRef.current = null; }
+    if (transportLayerRef.current) { mapRef.current.removeLayer(transportLayerRef.current); transportLayerRef.current = null; }
+
     tileLayerRef.current = L.tileLayer(cfg.url, {
       maxNativeZoom: cfg.maxNativeZoom,
       maxZoom: cfg.maxZoom,
       attribution: cfg.attribution,
       subdomains: cfg.subdomains,
     }).addTo(mapRef.current);
+
+    if (tileMode === 'satellite') {
+      transportLayerRef.current = L.tileLayer(SATELLITE_TRANSPORT_URL, {
+        maxNativeZoom: 19,
+        maxZoom: 21,
+        opacity: 0.95,
+      }).addTo(mapRef.current);
+      labelsLayerRef.current = L.tileLayer(SATELLITE_LABELS_URL, {
+        maxNativeZoom: 19,
+        maxZoom: 21,
+      }).addTo(mapRef.current);
+    }
+
     if (typeof window !== 'undefined') window.localStorage.setItem(TILE_PREF_KEY, tileMode);
   }, [tileMode]);
 
   function flyTo(lat: number, lng: number) {
-    if (mapRef.current) mapRef.current.flyTo([lat, lng], 19, { duration: 0.8 });
+    if (mapRef.current) mapRef.current.flyTo([lat, lng], 18, { duration: 0.8 });
   }
 
   function detectLocation() {
