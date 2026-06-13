@@ -70,6 +70,15 @@ export interface MapConfirmData {
   lng: number;
 }
 
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 interface Props {
   initialLat: number | null;
   initialLng: number | null;
@@ -91,6 +100,10 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const transportLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leafletRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const poiLayerRef = useRef<any>(null);
+  const poiFetchSeqRef = useRef(0);
+  const poiDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const resolveDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -115,6 +128,55 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     const saved = window.localStorage.getItem(TILE_PREF_KEY);
     return saved === 'satellite' ? 'satellite' : 'street';
   });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const refreshPoiLabels = useCallback(async (mapInstance: any) => {
+    const L = leafletRef.current;
+    if (!L || !mapInstance) return;
+    const zoom = mapInstance.getZoom();
+    if (zoom < 16) {
+      if (poiLayerRef.current) {
+        poiLayerRef.current.clearLayers();
+      }
+      return;
+    }
+    const bounds = mapInstance.getBounds();
+    const minLat = bounds.getSouth();
+    const maxLat = bounds.getNorth();
+    const minLng = bounds.getWest();
+    const maxLng = bounds.getEast();
+
+    const seq = ++poiFetchSeqRef.current;
+    try {
+      const { data, error } = await supabase.functions.invoke('nearby-pois', {
+        body: { minLat, minLng, maxLat, maxLng },
+      });
+      if (error || seq !== poiFetchSeqRef.current) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pois: { id: string; name: string; lat: number; lng: number; kind: string }[] = data?.pois ?? [];
+      if (!poiLayerRef.current) {
+        poiLayerRef.current = L.layerGroup().addTo(mapInstance);
+      } else {
+        poiLayerRef.current.clearLayers();
+      }
+      const seen = new Set<string>();
+      for (const p of pois) {
+        const key = `${p.name.toLowerCase()}|${p.lat.toFixed(5)}|${p.lng.toFixed(5)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const isSatellite = tileMode === 'satellite';
+        const icon = L.divIcon({
+          className: 'poi-label',
+          html: `<span class="poi-label-text${isSatellite ? ' poi-label-satellite' : ''}">${escapeHtml(p.name)}</span>`,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        });
+        L.marker([p.lat, p.lng], { icon, interactive: false, keyboard: false }).addTo(poiLayerRef.current);
+      }
+    } catch {
+      // best-effort
+    }
+  }, [tileMode]);
 
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
     setResolving(true);
@@ -197,10 +259,15 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
         resolveDebounceRef.current = setTimeout(() => {
           if (mounted) void reverseGeocode(center.lat, center.lng);
         }, 700);
+        if (poiDebounceRef.current) clearTimeout(poiDebounceRef.current);
+        poiDebounceRef.current = setTimeout(() => {
+          if (mounted) void refreshPoiLabels(mapInstance);
+        }, 400);
       });
 
       mapRef.current = mapInstance;
       void reverseGeocode(initialLat ?? DEFAULT_LAT, initialLng ?? DEFAULT_LNG);
+      void refreshPoiLabels(mapInstance);
     };
 
     void initMap();
@@ -209,8 +276,10 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       mounted = false;
       if (resolveDebounceRef.current) clearTimeout(resolveDebounceRef.current);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      if (poiDebounceRef.current) clearTimeout(poiDebounceRef.current);
       if (mapInstance) mapInstance.remove();
       mapRef.current = null;
+      poiLayerRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -253,7 +322,8 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     }
 
     if (typeof window !== 'undefined') window.localStorage.setItem(TILE_PREF_KEY, tileMode);
-  }, [tileMode]);
+    if (mapRef.current) void refreshPoiLabels(mapRef.current);
+  }, [tileMode, refreshPoiLabels]);
 
   function flyTo(lat: number, lng: number) {
     if (mapRef.current) mapRef.current.flyTo([lat, lng], 18, { duration: 0.8 });
