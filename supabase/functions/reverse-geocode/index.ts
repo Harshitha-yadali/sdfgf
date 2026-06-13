@@ -62,18 +62,49 @@ async function getMapplsToken(): Promise<string> {
 async function tryMappls(lat: number, lng: number): Promise<{ payload: ReverseGeocodePayload; provider: string } | null> {
   if (!MAPPLS_REST_KEY) return null;
   try {
-    const url = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
     // Use OAuth token if available, otherwise the REST key in the URL path is sufficient
     const token = await getMapplsToken();
     const fetchHeaders: Record<string, string> = {};
     if (token) fetchHeaders["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(url, { headers: fetchHeaders });
-    if (!res.ok) return null;
+
+    // Step 1: Reverse geocode for address components
+    const revUrl = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
+    const revRes = await fetch(revUrl, { headers: fetchHeaders });
+    if (!revRes.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await res.json();
-    const r = data?.results?.[0];
+    const revData: any = await revRes.json();
+    const r = revData?.results?.[0];
     if (!r) return null;
-    const buildingName: string = r.poi || r.house_name || r.formatted_address?.split(",")[0] || "";
+
+    let buildingName: string = r.poi || r.house_name || "";
+
+    // Step 2: If no POI from rev_geocode, query Nearby API within 80m for named buildings
+    if (!buildingName) {
+      try {
+        const nearbyUrl = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY}/nearby?keywords=&refLocation=${lat},${lng}&radius=80&region=IND&count=5&sortBy=dist`;
+        const nearbyRes = await fetch(nearbyUrl, { headers: fetchHeaders });
+        if (nearbyRes.ok) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const nearbyData: any = await nearbyRes.json();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const suggestions: any[] = Array.isArray(nearbyData?.suggestedLocations)
+            ? nearbyData.suggestedLocations
+            : [];
+          const BUILDING_TYPES = ["RESIDENTIAL", "BUILDING", "SOCIETY", "APARTMENT", "COMPLEX"];
+          const best = suggestions
+            .filter((s) => typeof s.distance === "number" && s.distance <= 80 && s.placeName)
+            .sort((a, b) => {
+              const aBuilding = BUILDING_TYPES.some((t) => (a.type || "").toUpperCase().includes(t)) ? 0 : 1;
+              const bBuilding = BUILDING_TYPES.some((t) => (b.type || "").toUpperCase().includes(t)) ? 0 : 1;
+              return (aBuilding - bBuilding) || (a.distance - b.distance);
+            })[0];
+          if (best) buildingName = best.placeName as string;
+        }
+      } catch {
+        // ignore nearby failures — we still have the address from rev_geocode
+      }
+    }
+
     const area = buildingName || r.subSubLocality || r.subLocality || r.locality || r.village || r.city || r.district || "";
     const fullParts: string[] = [];
     if (r.house_number) fullParts.push(r.house_number);
