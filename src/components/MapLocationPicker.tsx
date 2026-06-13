@@ -192,62 +192,84 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     if (q.trim().length < 2) { setSearchResults([]); setNoResults(false); return; }
     setSearching(true);
     setNoResults(false);
+
+    const seen = new Set<string>();
+    const results: SearchSuggestion[] = [];
+
+    function addSuggestion(s: SearchSuggestion) {
+      const key = `${s.lat.toFixed(4)},${s.lng.toFixed(4)}`;
+      if (!seen.has(key) && s.label.trim()) { seen.add(key); results.push(s); }
+    }
+
+    const delta = 0.15;
+    const south = centerLat - delta;
+    const north = centerLat + delta;
+    const west = centerLng - delta;
+    const east = centerLng + delta;
+
     try {
-      // Photon (Komoot) — excellent OSM POI/building coverage with proximity bias
-      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8&lang=en&lat=${centerLat}&lon=${centerLng}`;
-      const photonRes = await fetch(photonUrl);
-      const photonData = await photonRes.json();
+      // Run Photon + Nominatim in parallel for maximum coverage
+      const [photonRes, nomRes] = await Promise.allSettled([
+        fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en&lat=${centerLat}&lon=${centerLng}`)
+          .then(r => r.json()),
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&limit=8&viewbox=${west},${south},${east},${north}&bounded=0&q=${encodeURIComponent(q)}`)
+          .then(r => r.json()),
+      ]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const photonSuggestions: SearchSuggestion[] = (photonData.features || []).map((f: any) => {
-        const p = f.properties;
-        const name = p.name || p.street || p.city || '';
-        const parts: string[] = [];
-        if (p.street && p.street !== name) parts.push(p.street);
-        if (p.district) parts.push(p.district);
-        if (p.city) parts.push(p.city);
-        if (p.state) parts.push(p.state);
-        return {
-          label: name,
-          sublabel: parts.join(', '),
-          lat: f.geometry.coordinates[1] as number,
-          lng: f.geometry.coordinates[0] as number,
-        };
-      }).filter((s: SearchSuggestion) => s.label);
-
-      if (photonSuggestions.length > 0) {
-        setSearchResults(photonSuggestions);
-        setShowResults(true);
-        setNoResults(false);
-        return;
+      // Photon results
+      if (photonRes.status === 'fulfilled') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const f of (photonRes.value?.features || []) as any[]) {
+          const p = f.properties;
+          const name = p.name || p.street || p.city || '';
+          const parts: string[] = [];
+          if (p.street && p.street !== name) parts.push(p.street);
+          if (p.district) parts.push(p.district);
+          if (p.city) parts.push(p.city);
+          if (p.state) parts.push(p.state);
+          addSuggestion({ label: name, sublabel: parts.join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] });
+        }
       }
 
-      // Fallback: Nominatim with viewbox bias around current map center
-      const delta = 0.15;
-      const viewbox = `${centerLng - delta},${centerLat - delta},${centerLng + delta},${centerLat + delta}`;
-      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&countrycodes=in&limit=8&viewbox=${viewbox}&q=${encodeURIComponent(q)}`;
-      const nomRes = await fetch(nomUrl);
-      const nomData: NominatimResult[] = await nomRes.json();
+      // Nominatim results
+      if (nomRes.status === 'fulfilled') {
+        for (const r of (nomRes.value || []) as NominatimResult[]) {
+          const a = r.address;
+          const name = r.namedetails?.name || a.amenity || a.shop || a.building || a.road || r.display_name.split(',')[0];
+          const parts: string[] = [];
+          if (a.road && a.road !== name) parts.push(a.road);
+          if (a.neighbourhood) parts.push(a.neighbourhood);
+          const city = a.city || a.town || a.village || '';
+          if (city) parts.push(city);
+          addSuggestion({ label: name, sublabel: parts.join(', '), lat: parseFloat(r.lat), lng: parseFloat(r.lon) });
+        }
+      }
 
-      const nomSuggestions: SearchSuggestion[] = nomData.map((r) => {
-        const a = r.address;
-        const name = r.namedetails?.name || a.amenity || a.shop || a.building || a.road || r.display_name.split(',')[0];
-        const parts: string[] = [];
-        if (a.road && a.road !== name) parts.push(a.road);
-        if (a.neighbourhood) parts.push(a.neighbourhood);
-        const city = a.city || a.town || a.village || '';
-        if (city) parts.push(city);
-        return {
-          label: name,
-          sublabel: parts.join(', '),
-          lat: parseFloat(r.lat),
-          lng: parseFloat(r.lon),
-        };
-      }).filter((s) => s.label);
+      // Overpass API as final fallback — searches OSM named entities in viewport directly
+      if (results.length === 0) {
+        const safeQ = q.replace(/[\\"\[\]{}()|?+*^$]/g, '').trim();
+        if (safeQ.length >= 2) {
+          const ovQuery = `[out:json][timeout:8];(node["name"~"${safeQ}",i](${south},${west},${north},${east});way["name"~"${safeQ}",i](${south},${west},${north},${east}););out center 8;`;
+          try {
+            const ovRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(ovQuery)}`);
+            const ovData = await ovRes.json();
+            for (const el of (ovData.elements || [])) {
+              const lat = el.lat ?? el.center?.lat;
+              const lng = el.lon ?? el.center?.lon;
+              if (!lat || !lng || !el.tags?.name) continue;
+              addSuggestion({
+                label: el.tags.name,
+                sublabel: el.tags['addr:street'] || el.tags['addr:suburb'] || el.tags.amenity || '',
+                lat, lng,
+              });
+            }
+          } catch { /* ignore overpass errors */ }
+        }
+      }
 
-      setSearchResults(nomSuggestions);
-      setShowResults(nomSuggestions.length > 0);
-      setNoResults(nomSuggestions.length === 0);
+      setSearchResults(results.slice(0, 8));
+      setShowResults(results.length > 0);
+      setNoResults(results.length === 0);
     } catch {
       setSearchResults([]);
       setNoResults(true);
@@ -339,8 +361,8 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
             <div className="absolute left-4 right-4 top-full mt-0.5 bg-brand-surface border border-brand-border rounded-xl shadow-elevated z-10 max-h-64 overflow-y-auto">
               {noResults ? (
                 <div className="px-4 py-4 text-center">
-                  <p className="text-[13px] text-brand-text-dim">No results found</p>
-                  <p className="text-[11px] text-brand-text-dim/60 mt-1">Try a different spelling or drag the map pin instead</p>
+                  <p className="text-[13px] text-brand-text-dim font-semibold">No results found</p>
+                  <p className="text-[11px] text-brand-text-dim/60 mt-1 leading-snug">This place may not be in the map database yet. <br/>Drag the map pin to your exact location instead.</p>
                 </div>
               ) : (
                 searchResults.map((r, i) => (
