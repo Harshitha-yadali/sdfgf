@@ -14,62 +14,32 @@ interface Poi {
   kind: string;
 }
 
-const MAPPLS_CLIENT_ID = Deno.env.get("MAPPLS_CLIENT_ID") ?? "";
-const MAPPLS_CLIENT_SECRET = Deno.env.get("MAPPLS_CLIENT_SECRET") ?? "";
-const MAPPLS_REST_KEY = Deno.env.get("MAPPLS_REST_KEY") ?? "";
+const TOMTOM_API_KEY = Deno.env.get("TOMTOM_API_KEY") ?? "";
 const GOOGLE_MAPS_API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
 
-let mapplsToken = "";
-let mapplsTokenExpiresAt = 0;
-
-async function getMapplsToken(): Promise<string> {
-  if (!MAPPLS_CLIENT_ID || !MAPPLS_CLIENT_SECRET) return "";
-  const now = Date.now();
-  if (mapplsToken && now < mapplsTokenExpiresAt) return mapplsToken;
-  const params = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: MAPPLS_CLIENT_ID,
-    client_secret: MAPPLS_CLIENT_SECRET,
-  });
-  const res = await fetch("https://outpost.mappls.com/api/security/oauth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
-  if (!res.ok) return "";
-  const data = await res.json() as { access_token?: string; expires_in?: number };
-  if (!data.access_token) return "";
-  mapplsToken = data.access_token;
-  mapplsTokenExpiresAt = now + Math.max(60_000, ((data.expires_in ?? 86_400) - 600) * 1000);
-  return mapplsToken;
-}
-
-async function tryMappls(centerLat: number, centerLng: number, radiusMeters: number): Promise<Poi[] | null> {
-  const token = await getMapplsToken();
-  if (!token) return null;
+async function tryTomTom(centerLat: number, centerLng: number, radiusMeters: number): Promise<Poi[] | null> {
+  if (!TOMTOM_API_KEY) return null;
   try {
-    const restKey = MAPPLS_REST_KEY || MAPPLS_CLIENT_ID;
-    const url = `https://atlas.mappls.com/api/places/nearby/json?keywords=residency,apartment,building,store,shop,restaurant,school,hospital,bank,atm&refLocation=${centerLat},${centerLng}&radius=${Math.round(radiusMeters)}&page=1&itemCount=30`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const url = `https://api.tomtom.com/search/2/nearbySearch/.json?lat=${centerLat}&lon=${centerLng}&radius=${Math.round(radiusMeters)}&limit=30&key=${TOMTOM_API_KEY}&view=IN`;
+    const res = await fetch(url);
     if (!res.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const list: any[] = data?.suggestedLocations ?? data?.results ?? [];
-    void restKey;
+    const list: any[] = Array.isArray(data?.results) ? data.results : [];
     return list
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((p: any, idx: number): Poi | null => {
-        const lat = Number(p.latitude ?? p.lat);
-        const lng = Number(p.longitude ?? p.lng ?? p.lon);
-        const name: string = p.placeName || p.name || p.poi_name || "";
+        const lat = Number(p.position?.lat);
+        const lng = Number(p.position?.lon);
+        const name: string = p.poi?.name || "";
         if (!Number.isFinite(lat) || !Number.isFinite(lng) || !name) return null;
         return {
-          id: `mappls-${p.eLoc || p.placeId || idx}`,
+          id: `tomtom-${p.id || idx}`,
           name,
           lat,
           lng,
-          kind: p.type || p.category || "place",
+          kind: String(p.poi?.categorySet?.[0]?.id ?? "place"),
         };
       })
       .filter((p): p is Poi => p !== null);
@@ -168,7 +138,7 @@ Deno.serve(async (req: Request) => {
     const radius = Math.min(2000, Math.max(80, Math.sqrt(dLatMeters * dLatMeters + dLngMeters * dLngMeters) / 2));
 
     const result =
-      (await tryMappls(centerLat, centerLng, radius)) ||
+      (await tryTomTom(centerLat, centerLng, radius)) ||
       (await tryGoogle(centerLat, centerLng, radius)) ||
       (await tryOverpass(minLat, minLng, maxLat, maxLng)) ||
       [];

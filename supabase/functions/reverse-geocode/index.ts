@@ -23,9 +23,7 @@ interface CachedRow {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const MAPPLS_CLIENT_ID = Deno.env.get("MAPPLS_CLIENT_ID") ?? "";
-const MAPPLS_CLIENT_SECRET = Deno.env.get("MAPPLS_CLIENT_SECRET") ?? "";
-const MAPPLS_REST_KEY = Deno.env.get("MAPPLS_REST_KEY") ?? "";
+const TOMTOM_API_KEY = Deno.env.get("TOMTOM_API_KEY") ?? "";
 const GOOGLE_MAPS_API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
 
 const CACHE_MAX_AGE_DAYS = 60;
@@ -34,98 +32,62 @@ const admin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
   : null;
 
-let mapplsToken = "";
-let mapplsTokenExpiresAt = 0;
-
-async function getMapplsToken(): Promise<string> {
-  if (!MAPPLS_CLIENT_ID || !MAPPLS_CLIENT_SECRET) return "";
-  const now = Date.now();
-  if (mapplsToken && now < mapplsTokenExpiresAt) return mapplsToken;
-  const params = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: MAPPLS_CLIENT_ID,
-    client_secret: MAPPLS_CLIENT_SECRET,
-  });
-  const res = await fetch("https://outpost.mappls.com/api/security/oauth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
-  if (!res.ok) return "";
-  const data = await res.json() as { access_token?: string; expires_in?: number };
-  if (!data.access_token) return "";
-  mapplsToken = data.access_token;
-  mapplsTokenExpiresAt = now + Math.max(60_000, ((data.expires_in ?? 86_400) - 600) * 1000);
-  return mapplsToken;
-}
-
-async function tryMappls(lat: number, lng: number): Promise<{ payload: ReverseGeocodePayload; provider: string } | null> {
-  if (!MAPPLS_REST_KEY) return null;
+async function tryTomTom(lat: number, lng: number): Promise<{ payload: ReverseGeocodePayload; provider: string } | null> {
+  if (!TOMTOM_API_KEY) return null;
   try {
-    // Use OAuth token if available, otherwise the REST key in the URL path is sufficient
-    const token = await getMapplsToken();
-    const fetchHeaders: Record<string, string> = {};
-    if (token) fetchHeaders["Authorization"] = `Bearer ${token}`;
-
-    // Step 1: Reverse geocode for address components
-    const revUrl = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
-    const revRes = await fetch(revUrl, { headers: fetchHeaders });
+    // Step 1: Reverse geocode — returns address fields and buildingName when pin is on a named building
+    const revUrl = `https://api.tomtom.com/search/2/reverseGeocode/${lat},${lng}.json?key=${TOMTOM_API_KEY}&view=IN`;
+    const revRes = await fetch(revUrl);
     if (!revRes.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const revData: any = await revRes.json();
-    const r = revData?.results?.[0];
-    if (!r) return null;
+    const addr = revData?.addresses?.[0];
+    if (!addr) return null;
 
-    let buildingName: string = r.poi || r.house_name || "";
+    const a = addr.address ?? {};
+    let buildingName: string = a.buildingName || addr.poi?.name || "";
 
-    // Step 2: If no POI from rev_geocode, query Nearby API within 80m for named buildings
+    // Step 2: If no building name, search nearby with categorySet=7317 (Communities —
+    // covers residential apartments/societies in India) so commercial POIs are never returned.
     if (!buildingName) {
       try {
-        const nearbyUrl = `https://apis.mappls.com/advancedmaps/v1/${MAPPLS_REST_KEY}/nearby?keywords=&refLocation=${lat},${lng}&radius=80&region=IND&count=5&sortBy=dist`;
-        const nearbyRes = await fetch(nearbyUrl, { headers: fetchHeaders });
+        const nearbyUrl = `https://api.tomtom.com/search/2/nearbySearch/.json?lat=${lat}&lon=${lng}&radius=80&limit=5&key=${TOMTOM_API_KEY}&view=IN&categorySet=7317`;
+        const nearbyRes = await fetch(nearbyUrl);
         if (nearbyRes.ok) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const nearbyData: any = await nearbyRes.json();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const suggestions: any[] = Array.isArray(nearbyData?.suggestedLocations)
-            ? nearbyData.suggestedLocations
-            : [];
-          // Only accept residential/building types — never commercial shops or POIs.
-          // Mappls type strings for Indian apartment complexes include "RESIDENTIAL SOCIETIES",
-          // "BUILDINGS", "SOCIETY", "APARTMENT", "COMPLEX". Commercial types (SHOP, OPTICIAN,
-          // RESTAURANT, etc.) are excluded so a nearby Lenskart can't become the building name.
-          const BUILDING_TYPES = ["RESIDENTIAL", "BUILDING", "SOCIETY", "APARTMENT", "COMPLEX"];
-          const best = suggestions
-            .filter((s) =>
-              typeof s.distance === "number" &&
-              s.distance <= 80 &&
-              s.placeName &&
-              BUILDING_TYPES.some((t) => (s.type || "").toUpperCase().includes(t)),
-            )
-            .sort((a, b) => a.distance - b.distance)[0];
-          if (best) buildingName = best.placeName as string;
+          const results: any[] = Array.isArray(nearbyData?.results) ? nearbyData.results : [];
+          const best = results
+            .filter((r) => r.poi?.name && typeof r.dist === "number" && r.dist <= 80)
+            .sort((a, b) => a.dist - b.dist)[0];
+          if (best) buildingName = best.poi.name as string;
         }
       } catch {
-        // ignore nearby failures — we still have the address from rev_geocode
+        // ignore nearby failures — we still have address from rev geocode
       }
     }
 
-    const area = buildingName || r.subSubLocality || r.subLocality || r.locality || r.village || r.city || r.district || "";
+    const neighbourhood = a.municipalitySubdivision || "";
+    const city = a.municipality || "";
+    const state = a.countrySubdivision || "";
+    const pincode = (a.postalCode || "").toString().replace(/\s/g, "");
+
+    const area = buildingName || neighbourhood || city || "";
     const fullParts: string[] = [];
-    if (r.house_number) fullParts.push(r.house_number);
-    if (r.street) fullParts.push(r.street);
-    if (r.subSubLocality) fullParts.push(r.subSubLocality);
-    if (r.subLocality && r.subLocality !== r.subSubLocality) fullParts.push(r.subLocality);
-    if (r.locality && r.locality !== r.subLocality) fullParts.push(r.locality);
-    if (r.city && r.city !== r.locality) fullParts.push(r.city);
-    if (r.state) fullParts.push(r.state);
+    if (a.streetNumber) fullParts.push(a.streetNumber);
+    if (a.streetName) fullParts.push(a.streetName);
+    if (neighbourhood) fullParts.push(neighbourhood);
+    if (city && city !== neighbourhood) fullParts.push(city);
+    if (state) fullParts.push(state);
+
     return {
-      provider: "mappls",
+      provider: "tomtom",
       payload: {
         buildingName,
         area,
         fullAddress: fullParts.join(", "),
-        pincode: (r.pincode || "").toString().replace(/\s/g, ""),
+        pincode,
         hasSpecificPlace: !!buildingName,
       },
     };
@@ -341,7 +303,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const result =
-      (await tryMappls(lat, lng)) ||
+      (await tryTomTom(lat, lng)) ||
       (await tryGoogle(lat, lng)) ||
       (await tryOsm(lat, lng));
 
