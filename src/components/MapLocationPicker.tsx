@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, MapPin, Navigation, Search, Loader2, X, Home, Layers } from 'lucide-react';
+import { ArrowLeft, MapPin, Navigation, Search, Loader2, X, Home, Layers, Plus, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const DEFAULT_LAT = 16.4724;
@@ -61,7 +61,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
 
   const [resolving, setResolving] = useState(true);
   const [areaName, setAreaName] = useState('');
-  const [hasSpecificPlace, setHasSpecificPlace] = useState(false);
   const [fullAddress, setFullAddress] = useState('');
   const [detectedPincode, setDetectedPincode] = useState('');
   const [manualPincode, setManualPincode] = useState('');
@@ -92,15 +91,12 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       const area: string = data?.area || '';
       const fAddr: string = data?.fullAddress || '';
       const pincode: string = (data?.pincode || '').toString().replace(/\s/g, '');
-      const isSpecific: boolean = !!data?.hasSpecificPlace;
 
       setAreaName(area);
-      setHasSpecificPlace(isSpecific);
       setFullAddress(fAddr);
       setDetectedPincode(pincode.length === 6 ? pincode : '');
     } catch {
       setAreaName('');
-      setHasSpecificPlace(false);
       setFullAddress('');
       setDetectedPincode('');
     } finally {
@@ -134,8 +130,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
         zoom: DEFAULT_ZOOM,
         mapTypeId: tileMode === 'satellite' ? 'satellite' : 'roadmap',
         disableDefaultUI: true,
-        zoomControl: true,
-        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_BOTTOM },
         gestureHandling: 'greedy',
         clickableIcons: false,
       });
@@ -437,6 +431,29 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
           <Layers size={14} strokeWidth={2.2} className="text-brand-gold" />
           <span>{tileMode === 'street' ? 'Satellite' : 'Map'}</span>
         </button>
+
+        {/* Custom zoom buttons */}
+        <div
+          className="absolute bottom-4 right-3 flex flex-col gap-1"
+          style={{ zIndex: 9999 }}
+        >
+          <button
+            type="button"
+            onClick={() => mapRef.current && mapRef.current.setZoom(mapRef.current.getZoom() + 1)}
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-white hover:scale-105 active:scale-95 transition-transform"
+            style={{ background: 'rgba(15,17,23,0.85)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)' }}
+          >
+            <Plus size={16} strokeWidth={2.5} />
+          </button>
+          <button
+            type="button"
+            onClick={() => mapRef.current && mapRef.current.setZoom(mapRef.current.getZoom() - 1)}
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-white hover:scale-105 active:scale-95 transition-transform"
+            style={{ background: 'rgba(15,17,23,0.85)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)' }}
+          >
+            <Minus size={16} strokeWidth={2.5} />
+          </button>
+        </div>
       </div>
 
       {/* Bottom sheet */}
@@ -469,13 +486,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
                   <p className="text-[12px] text-brand-text-muted leading-snug mt-0.5 line-clamp-2">
                     {fullAddress}
                   </p>
-                )}
-                {!hasSpecificPlace && !detail.trim() && areaName && (
-                  <div className="mt-1.5 flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-brand-gold/10 border border-brand-gold/25">
-                    <span className="text-[10px] leading-snug text-brand-gold font-semibold">
-                      Building name not in maps. Type your building below — your delivery partner will see the exact pin location too.
-                    </span>
-                  </div>
                 )}
                 {detectedPincode && (
                   <span className="inline-block mt-1 text-[11px] font-semibold text-brand-text-dim bg-brand-surface-light px-2 py-0.5 rounded-md">
