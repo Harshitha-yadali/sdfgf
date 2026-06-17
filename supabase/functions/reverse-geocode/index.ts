@@ -23,82 +23,31 @@ interface CachedRow {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const TOMTOM_API_KEY = Deno.env.get("TOMTOM_API_KEY") ?? "";
 const GOOGLE_MAPS_API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
 
 const CACHE_MAX_AGE_DAYS = 60;
+
+// Google Places types that are purely commercial — we never want these as a "building name"
+// because the user's building is almost certainly behind/beside them, not at the POI itself.
+const COMMERCIAL_TYPES = new Set([
+  "restaurant", "food", "cafe", "bar", "bakery", "meal_delivery", "meal_takeaway",
+  "store", "shopping_mall", "supermarket", "convenience_store", "clothing_store",
+  "electronics_store", "hardware_store", "furniture_store", "shoe_store",
+  "jewelry_store", "liquor_store", "book_store", "bicycle_store", "car_dealer",
+  "car_rental", "car_repair", "car_wash", "gas_station", "parking",
+  "atm", "bank", "pharmacy", "doctor", "dentist", "hospital", "veterinary_care",
+  "hair_care", "beauty_salon", "spa", "gym", "laundry", "movie_theater",
+  "night_club", "casino", "bowling_alley",
+]);
 
 const admin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
   : null;
 
-async function tryTomTom(lat: number, lng: number): Promise<{ payload: ReverseGeocodePayload; provider: string } | null> {
-  if (!TOMTOM_API_KEY) return null;
-  try {
-    // Step 1: Reverse geocode — returns address fields and buildingName when pin is on a named building
-    const revUrl = `https://api.tomtom.com/search/2/reverseGeocode/${lat},${lng}.json?key=${TOMTOM_API_KEY}&view=IN`;
-    const revRes = await fetch(revUrl);
-    if (!revRes.ok) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const revData: any = await revRes.json();
-    const addr = revData?.addresses?.[0];
-    if (!addr) return null;
-
-    const a = addr.address ?? {};
-    let buildingName: string = a.buildingName || addr.poi?.name || "";
-
-    // Step 2: If no building name, search nearby with categorySet=7317 (Communities —
-    // covers residential apartments/societies in India) so commercial POIs are never returned.
-    if (!buildingName) {
-      try {
-        const nearbyUrl = `https://api.tomtom.com/search/2/nearbySearch/.json?lat=${lat}&lon=${lng}&radius=80&limit=5&key=${TOMTOM_API_KEY}&view=IN&categorySet=7317`;
-        const nearbyRes = await fetch(nearbyUrl);
-        if (nearbyRes.ok) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const nearbyData: any = await nearbyRes.json();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const results: any[] = Array.isArray(nearbyData?.results) ? nearbyData.results : [];
-          const best = results
-            .filter((r) => r.poi?.name && typeof r.dist === "number" && r.dist <= 80)
-            .sort((a, b) => a.dist - b.dist)[0];
-          if (best) buildingName = best.poi.name as string;
-        }
-      } catch {
-        // ignore nearby failures — we still have address from rev geocode
-      }
-    }
-
-    const neighbourhood = a.municipalitySubdivision || "";
-    const city = a.municipality || "";
-    const state = a.countrySubdivision || "";
-    const pincode = (a.postalCode || "").toString().replace(/\s/g, "");
-
-    const area = buildingName || neighbourhood || city || "";
-    const fullParts: string[] = [];
-    if (a.streetNumber) fullParts.push(a.streetNumber);
-    if (a.streetName) fullParts.push(a.streetName);
-    if (neighbourhood) fullParts.push(neighbourhood);
-    if (city && city !== neighbourhood) fullParts.push(city);
-    if (state) fullParts.push(state);
-
-    return {
-      provider: "tomtom",
-      payload: {
-        buildingName,
-        area,
-        fullAddress: fullParts.join(", "),
-        pincode,
-        hasSpecificPlace: !!buildingName,
-      },
-    };
-  } catch {
-    return null;
-  }
-}
-
 async function tryGoogle(lat: number, lng: number): Promise<{ payload: ReverseGeocodePayload; provider: string } | null> {
   if (!GOOGLE_MAPS_API_KEY) return null;
   try {
+    // Step 1: Reverse Geocoding API for address components
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`;
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -106,11 +55,12 @@ async function tryGoogle(lat: number, lng: number): Promise<{ payload: ReverseGe
     const data: any = await res.json();
     if (data.status !== "OK" || !Array.isArray(data.results) || data.results.length === 0) return null;
 
-    // Look for a premise / point_of_interest first - those carry building names.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const findResult = (types: string[]) => data.results.find((r: any) =>
       Array.isArray(r.types) && types.some((t) => r.types.includes(t)),
     );
+
+    // premise/subpremise/point_of_interest are the most specific — they carry building names
     const premise = findResult(["premise", "subpremise", "point_of_interest", "establishment"]);
     const route = findResult(["route", "street_address"]) ?? data.results[0];
 
@@ -119,7 +69,9 @@ async function tryGoogle(lat: number, lng: number): Promise<{ payload: ReverseGe
       buildingName = premise.formatted_address?.split(",")[0] || "";
     }
 
-    // Try Places Nearby Search for a closer named building if Geocoding didn't surface one.
+    // Step 2: If geocoding didn't surface a building name, try Places Nearby Search within 60m.
+    // Filter out known commercial types so a nearby shop/restaurant is never surfaced as the
+    // user's "building name" — only residential buildings, societies, and named structures pass.
     if (!buildingName) {
       try {
         const placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=60&key=${GOOGLE_MAPS_API_KEY}`;
@@ -127,12 +79,17 @@ async function tryGoogle(lat: number, lng: number): Promise<{ payload: ReverseGe
         if (placesRes.ok) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const placesData: any = await placesRes.json();
-          if (Array.isArray(placesData.results) && placesData.results.length > 0) {
-            buildingName = placesData.results[0].name || "";
-          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const places: any[] = Array.isArray(placesData.results) ? placesData.results : [];
+          // Take the first result whose meaningful types are not all commercial.
+          const best = places.find((p) => {
+            const types: string[] = Array.isArray(p.types) ? p.types : [];
+            return !types.every((t) => COMMERCIAL_TYPES.has(t) || t === "point_of_interest" || t === "establishment");
+          });
+          if (best?.name) buildingName = best.name;
         }
       } catch {
-        // ignore
+        // ignore — we still have address from geocoding
       }
     }
 
@@ -303,7 +260,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const result =
-      (await tryTomTom(lat, lng)) ||
       (await tryGoogle(lat, lng)) ||
       (await tryOsm(lat, lng));
 
@@ -321,7 +277,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Fire-and-forget cache write so the response isn't delayed.
     writeCache(lat, lng, result.provider, result.payload).catch(() => {});
 
     return new Response(JSON.stringify({ ...result.payload, provider: result.provider, cached: false }), {

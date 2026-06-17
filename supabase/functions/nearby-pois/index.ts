@@ -14,39 +14,7 @@ interface Poi {
   kind: string;
 }
 
-const TOMTOM_API_KEY = Deno.env.get("TOMTOM_API_KEY") ?? "";
 const GOOGLE_MAPS_API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
-
-async function tryTomTom(centerLat: number, centerLng: number, radiusMeters: number): Promise<Poi[] | null> {
-  if (!TOMTOM_API_KEY) return null;
-  try {
-    const url = `https://api.tomtom.com/search/2/nearbySearch/.json?lat=${centerLat}&lon=${centerLng}&radius=${Math.round(radiusMeters)}&limit=30&key=${TOMTOM_API_KEY}&view=IN`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await res.json();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const list: any[] = Array.isArray(data?.results) ? data.results : [];
-    return list
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((p: any, idx: number): Poi | null => {
-        const lat = Number(p.position?.lat);
-        const lng = Number(p.position?.lon);
-        const name: string = p.poi?.name || "";
-        if (!Number.isFinite(lat) || !Number.isFinite(lng) || !name) return null;
-        return {
-          id: `tomtom-${p.id || idx}`,
-          name,
-          lat,
-          lng,
-          kind: String(p.poi?.categorySet?.[0]?.id ?? "place"),
-        };
-      })
-      .filter((p): p is Poi => p !== null);
-  } catch {
-    return null;
-  }
-}
 
 async function tryGoogle(centerLat: number, centerLng: number, radiusMeters: number): Promise<Poi[] | null> {
   if (!GOOGLE_MAPS_API_KEY) return null;
@@ -138,12 +106,10 @@ Deno.serve(async (req: Request) => {
     const radius = Math.min(2000, Math.max(80, Math.sqrt(dLatMeters * dLatMeters + dLngMeters * dLngMeters) / 2));
 
     const result =
-      (await tryTomTom(centerLat, centerLng, radius)) ||
       (await tryGoogle(centerLat, centerLng, radius)) ||
       (await tryOverpass(minLat, minLng, maxLat, maxLng)) ||
       [];
 
-    // Provider-aware filter: keep results inside the bbox
     const filtered = result.filter((p) =>
       p.lat >= minLat && p.lat <= maxLat && p.lng >= minLng && p.lng <= maxLng
     );
