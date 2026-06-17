@@ -108,12 +108,21 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     }
   }, []);
 
+  // Kick off reverse geocode immediately on mount — independent of whether Google Maps loads
+  useEffect(() => {
+    void reverseGeocode(initialLat ?? DEFAULT_LAT, initialLng ?? DEFAULT_LNG);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!mapContainerRef.current || typeof window === 'undefined') return;
     let mounted = true;
 
     const initMap = async () => {
-      await loadGoogleMaps();
+      try {
+        await loadGoogleMaps();
+      } catch {
+        return; // Map failed to load; reverse geocode already running above
+      }
       if (!mounted || !mapContainerRef.current) return;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -145,8 +154,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
           if (mounted) void reverseGeocode(lat, lng);
         }, 700);
       });
-
-      void reverseGeocode(initialLat ?? DEFAULT_LAT, initialLng ?? DEFAULT_LNG);
     };
 
     void initMap();
@@ -190,7 +197,15 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     if (!navigator.geolocation) return;
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { flyTo(pos.coords.latitude, pos.coords.longitude); setLocating(false); },
+      (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        setCenterLat(lat);
+        setCenterLng(lng);
+        flyTo(lat, lng);
+        // If the map isn't loaded, the idle event won't fire — geocode directly
+        if (!mapRef.current) void reverseGeocode(lat, lng);
+        setLocating(false);
+      },
       () => setLocating(false),
       { enableHighAccuracy: true, timeout: 10000 },
     );
