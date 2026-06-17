@@ -404,35 +404,3 @@
     transition-duration: 0.01ms !important;
   }
 }
-
-.leaflet-marker-icon.poi-label {
-  background: transparent !important;
-  border: none !important;
-  pointer-events: none;
-}
-
-.poi-label-text {
-  display: inline-block;
-  transform: translate(-50%, -50%);
-  white-space: nowrap;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.1;
-  color: #1f2937;
-  text-shadow:
-    0 0 3px rgba(255, 255, 255, 0.95),
-    0 0 6px rgba(255, 255, 255, 0.85),
-    0 0 9px rgba(255, 255, 255, 0.7);
-  letter-spacing: -0.01em;
-  pointer-events: none;
-  user-select: none;
-}
-
-.poi-label-text.poi-label-satellite {
-  color: #f8fafc;
-  text-shadow:
-    0 0 3px rgba(0, 0, 0, 0.95),
-    0 0 6px rgba(0, 0, 0, 0.8),
-    0 0 9px rgba(0, 0, 0, 0.6);
-}

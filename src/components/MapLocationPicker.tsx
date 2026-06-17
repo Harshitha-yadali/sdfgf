@@ -1,66 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, MapPin, Navigation, Search, Loader2, X, Home, Layers } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
 import { supabase } from '../lib/supabase';
 
 const DEFAULT_LAT = 16.4724;
 const DEFAULT_LNG = 80.6516;
 const DEFAULT_ZOOM = 17;
 const TILE_PREF_KEY = 'mapTilePreference';
+const GMAPS_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
 
 type TileMode = 'street' | 'satellite';
-
-const TILE_LAYERS = {
-  street: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    maxNativeZoom: 19,
-    maxZoom: 21,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
-    subdomains: 'abc',
-  },
-  satellite: {
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    maxNativeZoom: 19,
-    maxZoom: 21,
-    attribution: 'Tiles © Esri / Maxar / Earthstar Geographics',
-    subdomains: '',
-  },
-};
-
-const SATELLITE_LABELS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
-const SATELLITE_TRANSPORT_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
-
-interface NominatimResult {
-  display_name: string;
-  lat: string;
-  lon: string;
-  name?: string;
-  namedetails?: Record<string, string>;
-  address: {
-    road?: string;
-    neighbourhood?: string;
-    suburb?: string;
-    city?: string;
-    town?: string;
-    village?: string;
-    state?: string;
-    postcode?: string;
-    house_number?: string;
-    house_name?: string;
-    building?: string;
-    amenity?: string;
-    shop?: string;
-    county?: string;
-    quarter?: string;
-  };
-}
 
 interface SearchSuggestion {
   label: string;
   sublabel: string;
-  lat: number;
-  lng: number;
+  placeId: string;
 }
 
 export interface MapConfirmData {
@@ -70,13 +24,23 @@ export interface MapConfirmData {
   lng: number;
 }
 
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+// Singleton script-load promise so we never inject the tag twice
+let gmapsLoadPromise: Promise<void> | null = null;
+
+function loadGoogleMaps(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((window as any).google?.maps?.Map) return Promise.resolve();
+  if (gmapsLoadPromise) return gmapsLoadPromise;
+  gmapsLoadPromise = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places`;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Google Maps'));
+    document.head.appendChild(script);
+  });
+  return gmapsLoadPromise;
 }
 
 interface Props {
@@ -92,18 +56,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   const detailInputRef = useRef<HTMLInputElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tileLayerRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const labelsLayerRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const transportLayerRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const leafletRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const poiLayerRef = useRef<any>(null);
-  const poiFetchSeqRef = useRef(0);
-  const poiDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const resolveDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -129,73 +81,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     return saved === 'satellite' ? 'satellite' : 'street';
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const refreshPoiLabels = useCallback(async (mapInstance: any) => {
-    const L = leafletRef.current;
-    if (!L || !mapInstance) return;
-    const zoom = mapInstance.getZoom();
-    if (zoom < 16) {
-      if (poiLayerRef.current) poiLayerRef.current.clearLayers();
-      return;
-    }
-    const bounds = mapInstance.getBounds();
-    const minLat = bounds.getSouth();
-    const maxLat = bounds.getNorth();
-    const minLng = bounds.getWest();
-    const maxLng = bounds.getEast();
-
-    const seq = ++poiFetchSeqRef.current;
-    try {
-      // Query Overpass directly from the browser — faster than edge function hop,
-      // avoids server-side rate limits, and works without any API keys.
-      const bbox = `${minLat},${minLng},${maxLat},${maxLng}`;
-      const query = `[out:json][timeout:10];(node["name"](${bbox});way["name"]["building"](${bbox});way["name"]["amenity"](${bbox});way["name"]["shop"](${bbox}););out tags center 80;`;
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: query,
-      });
-      if (!res.ok || seq !== poiFetchSeqRef.current) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data: any = await res.json();
-      if (seq !== poiFetchSeqRef.current) return;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const elements: any[] = Array.isArray(data?.elements) ? data.elements : [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pois = elements.map((el: any) => {
-        const name: string = el.tags?.name || el.tags?.['name:en'] || '';
-        if (!name) return null;
-        const lat = el.lat ?? el.center?.lat;
-        const lng = el.lon ?? el.center?.lon;
-        if (typeof lat !== 'number' || typeof lng !== 'number') return null;
-        return { name, lat, lng };
-      }).filter(Boolean) as { name: string; lat: number; lng: number }[];
-
-      if (!poiLayerRef.current) {
-        poiLayerRef.current = L.layerGroup().addTo(mapInstance);
-      } else {
-        poiLayerRef.current.clearLayers();
-      }
-      const seen = new Set<string>();
-      for (const p of pois) {
-        const key = `${p.name.toLowerCase()}|${p.lat.toFixed(5)}|${p.lng.toFixed(5)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const isSatellite = tileMode === 'satellite';
-        const icon = L.divIcon({
-          className: 'poi-label',
-          html: `<span class="poi-label-text${isSatellite ? ' poi-label-satellite' : ''}">${escapeHtml(p.name)}</span>`,
-          iconSize: [0, 0],
-          iconAnchor: [0, 0],
-        });
-        L.marker([p.lat, p.lng], { icon, interactive: false, keyboard: false }).addTo(poiLayerRef.current);
-      }
-    } catch {
-      // best-effort
-    }
-  }, [tileMode]);
-
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
     setResolving(true);
     try {
@@ -204,19 +89,15 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       });
       if (error) throw error;
 
-      const buildingName: string = data?.buildingName || '';
       const area: string = data?.area || '';
-      const fullAddress: string = data?.fullAddress || '';
+      const fAddr: string = data?.fullAddress || '';
       const pincode: string = (data?.pincode || '').toString().replace(/\s/g, '');
       const isSpecific: boolean = !!data?.hasSpecificPlace;
 
       setAreaName(area);
       setHasSpecificPlace(isSpecific);
-      setFullAddress(fullAddress);
+      setFullAddress(fAddr);
       setDetectedPincode(pincode.length === 6 ? pincode : '');
-
-      // Suppress unused-variable warning - buildingName surfaces via `area` when isSpecific
-      void buildingName;
     } catch {
       setAreaName('');
       setHasSpecificPlace(false);
@@ -230,62 +111,42 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   useEffect(() => {
     if (!mapContainerRef.current || typeof window === 'undefined') return;
     let mounted = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let mapInstance: any = null;
 
     const initMap = async () => {
-      const L = (await import('leaflet')).default;
+      await loadGoogleMaps();
       if (!mounted || !mapContainerRef.current) return;
 
-      leafletRef.current = L;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const google = (window as any).google;
 
-      mapInstance = L.map(mapContainerRef.current, {
-        center: [initialLat ?? DEFAULT_LAT, initialLng ?? DEFAULT_LNG],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mapInstance: any = new google.maps.Map(mapContainerRef.current, {
+        center: { lat: initialLat ?? DEFAULT_LAT, lng: initialLng ?? DEFAULT_LNG },
         zoom: DEFAULT_ZOOM,
-        maxZoom: 21,
-        zoomControl: false,
-      });
-
-      const cfg = TILE_LAYERS[tileMode];
-      tileLayerRef.current = L.tileLayer(cfg.url, {
-        maxNativeZoom: cfg.maxNativeZoom,
-        maxZoom: cfg.maxZoom,
-        attribution: cfg.attribution,
-        subdomains: cfg.subdomains,
-      }).addTo(mapInstance);
-
-      if (tileMode === 'satellite') {
-        transportLayerRef.current = L.tileLayer(SATELLITE_TRANSPORT_URL, {
-          maxNativeZoom: 19,
-          maxZoom: 21,
-          opacity: 0.95,
-        }).addTo(mapInstance);
-        labelsLayerRef.current = L.tileLayer(SATELLITE_LABELS_URL, {
-          maxNativeZoom: 19,
-          maxZoom: 21,
-        }).addTo(mapInstance);
-      }
-
-      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
-
-      mapInstance.on('moveend', () => {
-        if (!mounted) return;
-        const center = mapInstance.getCenter();
-        setCenterLat(center.lat);
-        setCenterLng(center.lng);
-        if (resolveDebounceRef.current) clearTimeout(resolveDebounceRef.current);
-        resolveDebounceRef.current = setTimeout(() => {
-          if (mounted) void reverseGeocode(center.lat, center.lng);
-        }, 700);
-        if (poiDebounceRef.current) clearTimeout(poiDebounceRef.current);
-        poiDebounceRef.current = setTimeout(() => {
-          if (mounted) void refreshPoiLabels(mapInstance);
-        }, 400);
+        mapTypeId: tileMode === 'satellite' ? 'satellite' : 'roadmap',
+        disableDefaultUI: true,
+        zoomControl: true,
+        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_BOTTOM },
+        gestureHandling: 'greedy',
+        clickableIcons: false,
       });
 
       mapRef.current = mapInstance;
+
+      mapInstance.addListener('idle', () => {
+        if (!mounted) return;
+        const center = mapInstance.getCenter();
+        const lat: number = center.lat();
+        const lng: number = center.lng();
+        setCenterLat(lat);
+        setCenterLng(lng);
+        if (resolveDebounceRef.current) clearTimeout(resolveDebounceRef.current);
+        resolveDebounceRef.current = setTimeout(() => {
+          if (mounted) void reverseGeocode(lat, lng);
+        }, 700);
+      });
+
       void reverseGeocode(initialLat ?? DEFAULT_LAT, initialLng ?? DEFAULT_LNG);
-      void refreshPoiLabels(mapInstance);
     };
 
     void initMap();
@@ -294,10 +155,8 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
       mounted = false;
       if (resolveDebounceRef.current) clearTimeout(resolveDebounceRef.current);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-      if (poiDebounceRef.current) clearTimeout(poiDebounceRef.current);
-      if (mapInstance) mapInstance.remove();
+      // Google Maps instances don't have a .remove() — just drop the ref
       mapRef.current = null;
-      poiLayerRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -311,40 +170,20 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Swap tile layer when mode toggles
+  // Swap map type when mode toggles
   useEffect(() => {
-    if (!mapRef.current || !leafletRef.current) return;
-    const L = leafletRef.current;
-    const cfg = TILE_LAYERS[tileMode];
-    if (tileLayerRef.current) mapRef.current.removeLayer(tileLayerRef.current);
-    if (labelsLayerRef.current) { mapRef.current.removeLayer(labelsLayerRef.current); labelsLayerRef.current = null; }
-    if (transportLayerRef.current) { mapRef.current.removeLayer(transportLayerRef.current); transportLayerRef.current = null; }
-
-    tileLayerRef.current = L.tileLayer(cfg.url, {
-      maxNativeZoom: cfg.maxNativeZoom,
-      maxZoom: cfg.maxZoom,
-      attribution: cfg.attribution,
-      subdomains: cfg.subdomains,
-    }).addTo(mapRef.current);
-
-    if (tileMode === 'satellite') {
-      transportLayerRef.current = L.tileLayer(SATELLITE_TRANSPORT_URL, {
-        maxNativeZoom: 19,
-        maxZoom: 21,
-        opacity: 0.95,
-      }).addTo(mapRef.current);
-      labelsLayerRef.current = L.tileLayer(SATELLITE_LABELS_URL, {
-        maxNativeZoom: 19,
-        maxZoom: 21,
-      }).addTo(mapRef.current);
-    }
-
+    if (!mapRef.current) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const google = (window as any).google;
+    if (!google?.maps) return;
+    mapRef.current.setMapTypeId(tileMode === 'satellite' ? 'satellite' : 'roadmap');
     if (typeof window !== 'undefined') window.localStorage.setItem(TILE_PREF_KEY, tileMode);
-    if (mapRef.current) void refreshPoiLabels(mapRef.current);
-  }, [tileMode, refreshPoiLabels]);
+  }, [tileMode]);
 
   function flyTo(lat: number, lng: number) {
-    if (mapRef.current) mapRef.current.flyTo([lat, lng], 18, { duration: 0.8 });
+    if (!mapRef.current) return;
+    mapRef.current.panTo({ lat, lng });
+    mapRef.current.setZoom(18);
   }
 
   function detectLocation() {
@@ -353,92 +192,48 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
     navigator.geolocation.getCurrentPosition(
       (pos) => { flyTo(pos.coords.latitude, pos.coords.longitude); setLocating(false); },
       () => setLocating(false),
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000 },
     );
   }
 
   async function doSearch(q: string) {
     if (q.trim().length < 2) { setSearchResults([]); setNoResults(false); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const google = (window as any).google;
+    if (!google?.maps?.places) return;
     setSearching(true);
     setNoResults(false);
 
-    const seen = new Set<string>();
-    const results: SearchSuggestion[] = [];
-
-    function addSuggestion(s: SearchSuggestion) {
-      const key = `${s.lat.toFixed(4)},${s.lng.toFixed(4)}`;
-      if (!seen.has(key) && s.label.trim()) { seen.add(key); results.push(s); }
-    }
-
-    const delta = 0.15;
-    const south = centerLat - delta;
-    const north = centerLat + delta;
-    const west = centerLng - delta;
-    const east = centerLng + delta;
-
     try {
-      // Run Photon + Nominatim in parallel for maximum coverage
-      const [photonRes, nomRes] = await Promise.allSettled([
-        fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en&lat=${centerLat}&lon=${centerLng}`)
-          .then(r => r.json()),
-        fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&limit=8&viewbox=${west},${south},${east},${north}&bounded=0&q=${encodeURIComponent(q)}`)
-          .then(r => r.json()),
-      ]);
-
-      // Photon results
-      if (photonRes.status === 'fulfilled') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const f of (photonRes.value?.features || []) as any[]) {
-          const p = f.properties;
-          const name = p.name || p.street || p.city || '';
-          const parts: string[] = [];
-          if (p.street && p.street !== name) parts.push(p.street);
-          if (p.district) parts.push(p.district);
-          if (p.city) parts.push(p.city);
-          if (p.state) parts.push(p.state);
-          addSuggestion({ label: name, sublabel: parts.join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] });
-        }
-      }
-
-      // Nominatim results
-      if (nomRes.status === 'fulfilled') {
-        for (const r of (nomRes.value || []) as NominatimResult[]) {
-          const a = r.address;
-          const name = r.namedetails?.name || a.amenity || a.shop || a.building || a.road || r.display_name.split(',')[0];
-          const parts: string[] = [];
-          if (a.road && a.road !== name) parts.push(a.road);
-          if (a.neighbourhood) parts.push(a.neighbourhood);
-          const city = a.city || a.town || a.village || '';
-          if (city) parts.push(city);
-          addSuggestion({ label: name, sublabel: parts.join(', '), lat: parseFloat(r.lat), lng: parseFloat(r.lon) });
-        }
-      }
-
-      // Overpass API as final fallback — searches OSM named entities in viewport directly
-      if (results.length === 0) {
-        const safeQ = q.replace(/[\\"\[\]{}()|?+*^$]/g, '').trim();
-        if (safeQ.length >= 2) {
-          const ovQuery = `[out:json][timeout:8];(node["name"~"${safeQ}",i](${south},${west},${north},${east});way["name"~"${safeQ}",i](${south},${west},${north},${east}););out center 8;`;
-          try {
-            const ovRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(ovQuery)}`);
-            const ovData = await ovRes.json();
-            for (const el of (ovData.elements || [])) {
-              const lat = el.lat ?? el.center?.lat;
-              const lng = el.lon ?? el.center?.lon;
-              if (!lat || !lng || !el.tags?.name) continue;
-              addSuggestion({
-                label: el.tags.name,
-                sublabel: el.tags['addr:street'] || el.tags['addr:suburb'] || el.tags.amenity || '',
-                lat, lng,
-              });
+      await new Promise<void>((resolve) => {
+        const svc = new google.maps.places.AutocompleteService();
+        svc.getPlacePredictions(
+          {
+            input: q,
+            location: new google.maps.LatLng(centerLat, centerLng),
+            radius: 30000,
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (predictions: any[] | null, status: string) => {
+            if (status === 'OK' && predictions && predictions.length > 0) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const results: SearchSuggestion[] = predictions.slice(0, 8).map((p: any) => ({
+                label: p.structured_formatting?.main_text || p.description.split(',')[0],
+                sublabel: p.structured_formatting?.secondary_text || '',
+                placeId: p.place_id,
+              }));
+              setSearchResults(results);
+              setShowResults(true);
+              setNoResults(false);
+            } else {
+              setSearchResults([]);
+              setShowResults(false);
+              setNoResults(true);
             }
-          } catch { /* ignore overpass errors */ }
-        }
-      }
-
-      setSearchResults(results.slice(0, 8));
-      setShowResults(results.length > 0);
-      setNoResults(results.length === 0);
+            resolve();
+          },
+        );
+      });
     } catch {
       setSearchResults([]);
       setNoResults(true);
@@ -455,11 +250,26 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
   }
 
   function selectSearchResult(r: SearchSuggestion) {
-    flyTo(r.lat, r.lng);
     setSearchQuery('');
     setSearchResults([]);
     setShowResults(false);
     setNoResults(false);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const google = (window as any).google;
+    if (!google?.maps) return;
+
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode(
+      { placeId: r.placeId },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (results: any[], status: string) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location;
+          flyTo(loc.lat(), loc.lng());
+        }
+      },
+    );
   }
 
   function handleConfirm() {
@@ -532,8 +342,8 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
                 <div className="px-4 py-4 text-center">
                   <p className="text-[13px] text-brand-text-dim font-semibold">No results found</p>
                   <p className="text-[11px] text-brand-text-dim/60 mt-1 leading-snug">
-                    This place may not be in the map database yet.<br />
-                    Tap <span className="text-brand-gold font-bold">Satellite</span> to spot your building from above, then drag the pin.
+                    Try a different spelling or use<br />
+                    <span className="text-brand-gold font-bold">Satellite</span> view to spot your building from above.
                   </p>
                 </div>
               ) : (
@@ -710,6 +520,6 @@ export default function MapLocationPicker({ initialLat, initialLng, onConfirm, o
         </button>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }
